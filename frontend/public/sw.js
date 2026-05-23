@@ -19,6 +19,9 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  // Não intercepta requisições cross-origin (API backend, Nominatim, etc.)
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
   event.respondWith(
     caches.match(event.request).then((cached) =>
       fetch(event.request)
