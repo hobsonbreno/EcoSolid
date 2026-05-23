@@ -1,0 +1,13 @@
+{
+  "name": "EcoSolid",
+  "short_name": "EcoSolid",
+  "description": "Registre ações de impacto ambiental e ganhe tokens",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#10b981",
+  "background_color": "#020617",
+  "icons": [
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # Banco de Dados NoSQL
+  ecosolid-mongo:
+    image: mongo:6.0
+    container_name: ecosolid_mongo
+    restart: always
+    ports:
+      - "27777:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+      MONGO_INITDB_DATABASE: ecosolid_db
+    volumes:
+      - ecosolid_mongo_data:/data/db
+    networks:
+      - ecosolid-network
+
+  # Backend - NestJS (Será configurado em breve)
+  ecosolid-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ecosolid_api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - MONGO_URI=mongodb://root:rootpassword@ecosolid-mongo:27017/ecosolid_db?authSource=admin
+      - PORT=3000
+    depends_on:
+      - ecosolid-mongo
+    networks:
+      - ecosolid-network
+
+  # Frontend/Mobile PWA - Next.js (Será configurado em breve)
+  ecosolid-web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ecosolid_web
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    depends_on:
+      - ecosolid-api
+    networks:
+      - ecosolid-network
+
+volumes:
+  ecosolid_mongo_data:
+
+networks:
+  ecosolid-network:
+    driver: bridge
