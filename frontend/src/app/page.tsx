@@ -146,7 +146,7 @@ export default function EcoSolidApp() {
       try {
         const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
           navigator.geolocation.getCurrentPosition(resolve, reject,
-            { enableHighAccuracy: false, timeout: 8000, maximumAge: 0 }
+            { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 }
           );
         });
         result.location = true;
