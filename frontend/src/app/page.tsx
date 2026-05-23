@@ -50,6 +50,18 @@ export default function EcoSolidApp() {
   // Formulário com a carteira (walletAddress) recebida do MetaMask
   const [formData, setFormData] = useState({ name: '', cpf: '', birthDate: '', cep: '', address: '', number: '', complement: '', phone: '', email: '', walletAddress: '' });
 
+  // Campos separados da data de nascimento (experiência melhor que type="date")
+  const [birthDay, setBirthDay] = useState('');
+  const [birthMonth, setBirthMonth] = useState('');
+  const [birthYear, setBirthYear] = useState('');
+  const updateBirthDate = (day: string, month: string, year: string) => {
+    if (day && month && year) {
+      const d = String(day).padStart(2, '0');
+      const m = String(month).padStart(2, '0');
+      setFormData(prev => ({ ...prev, birthDate: `${year}-${m}-${d}` }));
+    }
+  };
+
   // Câmera Nativa (WebRTC) para Selfie
   const [selfiePreview, setSelfiePreview] = useState<string | null>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -626,7 +638,49 @@ export default function EcoSolidApp() {
 
             <input required placeholder="Nome Completo" className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={e => setFormData({...formData, name: e.target.value})} />
             <input required placeholder="CPF" className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={e => setFormData({...formData, cpf: e.target.value})} />
-            <input required type="date" className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500 text-slate-400" onChange={e => setFormData({...formData, birthDate: e.target.value})} />
+            <div>
+              <label className="text-xs text-slate-500 font-bold uppercase block mb-2">Data de Nascimento</label>
+              <div className="flex gap-2">
+                <input
+                  required
+                  type="number"
+                  placeholder="Dia"
+                  min="1" max="31"
+                  value={birthDay}
+                  className="w-[30%] p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500"
+                  onChange={e => { const v = e.target.value; setBirthDay(v); updateBirthDate(v, birthMonth, birthYear); }}
+                />
+                <select
+                  required
+                  value={birthMonth}
+                  className="w-[40%] p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500 text-slate-400 appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2220%22 height=%2220%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23475569%22 stroke-width=%222%22><path d=%22M6 9l6 6 6-6%22/></svg>')] bg-no-repeat bg-[right_12px_center]"
+                  onChange={e => { const v = e.target.value; setBirthMonth(v); updateBirthDate(birthDay, v, birthYear); }}
+                >
+                  <option value="" className="bg-slate-900">Mês</option>
+                  <option value="1" className="bg-slate-900">Janeiro</option>
+                  <option value="2" className="bg-slate-900">Fevereiro</option>
+                  <option value="3" className="bg-slate-900">Março</option>
+                  <option value="4" className="bg-slate-900">Abril</option>
+                  <option value="5" className="bg-slate-900">Maio</option>
+                  <option value="6" className="bg-slate-900">Junho</option>
+                  <option value="7" className="bg-slate-900">Julho</option>
+                  <option value="8" className="bg-slate-900">Agosto</option>
+                  <option value="9" className="bg-slate-900">Setembro</option>
+                  <option value="10" className="bg-slate-900">Outubro</option>
+                  <option value="11" className="bg-slate-900">Novembro</option>
+                  <option value="12" className="bg-slate-900">Dezembro</option>
+                </select>
+                <input
+                  required
+                  type="number"
+                  placeholder="Ano"
+                  min="1900" max={new Date().getFullYear()}
+                  value={birthYear}
+                  className="w-[30%] p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500"
+                  onChange={e => { const v = e.target.value; setBirthYear(v); updateBirthDate(birthDay, birthMonth, v); }}
+                />
+              </div>
+            </div>
 
             <div className="flex gap-2">
               <input placeholder="CEP" value={formData.cep} className="w-1/3 p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={handleCepChange} maxLength={9} />
