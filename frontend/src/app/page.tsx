@@ -79,6 +79,24 @@ export default function EcoSolidApp() {
   const [redeemModal, setRedeemModal] = useState<{ code: string; partnerName: string; benefitDescription: string; solidCost: number } | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [bloodAlerts, setBloodAlerts] = useState<any[]>([]);
+
+  // Sistema de níveis
+  const getLevel = (points: number) => {
+    if (points >= 3000) return { level: 5, name: 'Guardião da Cidade', badge: '🌟', min: 3000, next: Infinity };
+    if (points >= 1000) return { level: 4, name: 'Cidadão Exemplar', badge: '🏆', min: 1000, next: 3000 };
+    if (points >= 500) return { level: 3, name: 'Cidadão Engajado', badge: '🌿', min: 500, next: 1000 };
+    if (points >= 100) return { level: 2, name: 'Cidadão Consciente', badge: '♻️', min: 100, next: 500 };
+    return { level: 1, name: 'Cidadão Iniciante', badge: '🌱', min: 0, next: 100 };
+  };
+
+  // Onboarding — mostra uma vez após cadastro
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  useEffect(() => {
+    if (view === 'DASHBOARD' && !localStorage.getItem('ecosolid_onboarding_done')) {
+      setShowOnboarding(true);
+      localStorage.setItem('ecosolid_onboarding_done', '1');
+    }
+  }, [view]);
   const [location, setLocation] = useState<{ lat: number, lng: number } | null>(null);
   const [locationAddress, setLocationAddress] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -1435,12 +1453,37 @@ export default function EcoSolidApp() {
               <h2 className="text-5xl font-black">{citizen.totalPoints}</h2>
               <span className="text-emerald-400 font-bold mb-1">SOLID</span>
             </div>
-            <div className="flex justify-between text-xs mb-2">
-              <span className="text-emerald-300 font-bold">{levelInfo.name}</span>
-            </div>
-            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-emerald-400 transition-all duration-1000" style={{ width: `${levelInfo.max ? 100 : (citizen.totalPoints / levelInfo.next) * 100}%` }}></div>
-            </div>
+            {(() => {
+              const level = getLevel(citizen.totalPoints || 0);
+              const prog = level.next === Infinity ? 100 : Math.max(2, ((citizen.totalPoints - level.min) / (level.next - level.min)) * 100);
+              return (
+                <>
+                  <div className="flex justify-between text-xs mb-2">
+                    <span className="text-emerald-300 font-bold">{level.badge} {level.name}</span>
+                    {level.next < Infinity && (
+                      <span className="text-slate-500">Faltam {level.next - (citizen.totalPoints || 0)} SOLID</span>
+                    )}
+                  </div>
+                  <div className="h-2 bg-white/10 rounded-full overflow-hidden mb-4">
+                    <div className="h-full bg-gradient-to-r from-emerald-400 to-cyan-400 rounded-full transition-all duration-700" style={{ width: `${prog}%` }} />
+                  </div>
+                </>
+              );
+            })()}
+            <button
+              onClick={() => {
+                const level = getLevel(citizen.totalPoints || 0);
+                const text = `Acabei de atingir o nível ${level.badge} ${level.name} no EcoSolid! 🌱\nJá fiz ${txHistory.length} ações cidadãs em Fortaleza.\nAcumulei ${(citizen.totalPoints || 0).toLocaleString()} SOLID em recompensas.\nJunte-se a mim: https://eco-solid.vercel.app`;
+                if (navigator.share) {
+                  navigator.share({ title: 'EcoSolid', text });
+                } else {
+                  navigator.clipboard.writeText(text).then(() => alert('Mensagem copiada! Compartilhe onde quiser.'));
+                }
+              }}
+              className="w-full p-3 rounded-xl bg-white/5 border border-white/10 hover:border-emerald-500/50 text-slate-400 hover:text-emerald-400 font-bold text-xs flex items-center justify-center gap-2 transition-colors"
+            >
+              📤 Compartilhar minha conquista
+            </button>
           </section>
 
           <section className="grid grid-cols-2 gap-4">
@@ -1708,6 +1751,48 @@ Verificado por EcoSolid — blockchain pública`;
               </button>
             </div>
             <p className="text-xs text-slate-600">Apresente este código no local do parceiro</p>
+          </div>
+        </div>
+      )}
+
+      {/* Onboarding pós-cadastro */}
+      {showOnboarding && (
+        <div className="fixed inset-0 bg-black z-[60] flex flex-col justify-center p-6">
+          <div className="max-w-sm mx-auto text-center space-y-6 animate-in fade-in zoom-in duration-500">
+            <span className="text-6xl">🌱</span>
+            <h1 className="text-3xl font-black text-white">Bem-vindo ao EcoSolid, {citizen.name?.split(' ')[0]}!</h1>
+            <p className="text-slate-400">Sua identidade cívica foi criada com sucesso. Veja como ganhar SOLID:</p>
+
+            <div className="grid gap-3">
+              <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-left flex gap-3 items-center">
+                <span className="text-3xl">♻️</span>
+                <div>
+                  <p className="font-bold text-white text-sm">Recicle</p>
+                  <p className="text-xs text-slate-400">Registre reciclagens e ganhe 50 SOLID por ação. Aponte a câmera para o material reciclado.</p>
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-left flex gap-3 items-center">
+                <span className="text-3xl">🩸</span>
+                <div>
+                  <p className="font-bold text-white text-sm">Doe Sangue</p>
+                  <p className="text-xs text-slate-400">Doe no HemoSangue CE e ganhe 500 SOLID. Seu tipo sanguíneo pode salvar vidas.</p>
+                </div>
+              </div>
+              <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-left flex gap-3 items-center">
+                <span className="text-3xl">🎁</span>
+                <div>
+                  <p className="font-bold text-white text-sm">Resgate Benefícios</p>
+                  <p className="text-xs text-slate-400">Troque SOLID por estacionamento, consultas, desconto em água e energia.</p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowOnboarding(false)}
+              className="w-full p-4 rounded-xl bg-emerald-500 font-bold text-white hover:bg-emerald-400 text-lg"
+            >
+              Começar agora 🚀
+            </button>
           </div>
         </div>
       )}

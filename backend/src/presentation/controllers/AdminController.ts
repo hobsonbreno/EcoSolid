@@ -48,4 +48,31 @@ export class AdminController {
       },
     };
   }
+
+  @Get('citizens/recent')
+  async recentCitizens(@Headers('x-admin-key') adminKey?: string) {
+    this.checkAuth(adminKey);
+    const citizens = await this.citizenModel
+      .find().sort({ createdAt: -1 }).limit(10).lean().exec();
+    return { success: true, data: citizens };
+  }
+
+  @Get('redemptions/recent')
+  async recentRedemptions(@Headers('x-admin-key') adminKey?: string) {
+    this.checkAuth(adminKey);
+    const redemptions = await this.redemptionModel
+      .find().sort({ createdAt: -1 }).limit(10).lean().exec();
+    return { success: true, data: redemptions };
+  }
+
+  @Get('blood-type-stats')
+  async bloodTypeStats(@Headers('x-admin-key') adminKey?: string) {
+    this.checkAuth(adminKey);
+    const stats = await this.citizenModel.aggregate([
+      { $match: { bloodType: { $exists: true, $nin: [null, ''] } } },
+      { $group: { _id: '$bloodType', count: { $sum: 1 } } },
+      { $sort: { _id: 1 } },
+    ]);
+    return { success: true, data: stats };
+  }
 }

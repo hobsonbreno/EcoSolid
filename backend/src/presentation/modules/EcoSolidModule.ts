@@ -15,6 +15,7 @@ import { ImpactActionController } from '../controllers/ImpactActionController';
 import { BloodAlertController } from '../controllers/BloodAlertController';
 import { BenefitController } from '../controllers/BenefitController';
 import { AdminController } from '../controllers/AdminController';
+import { PublicController } from '../controllers/PublicController';
 import { ICitizenRepository } from '../../domain/repositories/ICitizenRepository';
 import { IImpactActionRepository } from '../../domain/repositories/IImpactActionRepository';
 import { IBlockchainService } from '../../application/ports/IBlockchainService';
@@ -28,7 +29,7 @@ import { IBlockchainService } from '../../application/ports/IBlockchainService';
       { name: 'BenefitRedemption', schema: BenefitRedemptionSchema },
     ]),
   ],
-  controllers: [CitizenController, ImpactActionController, BloodAlertController, BenefitController, AdminController],
+  controllers: [CitizenController, ImpactActionController, BloodAlertController, BenefitController, AdminController, PublicController],
   providers: [
     // 1. Dizendo pro NestJS quem é a Infraestrutura real que assume os Contratos
     {
