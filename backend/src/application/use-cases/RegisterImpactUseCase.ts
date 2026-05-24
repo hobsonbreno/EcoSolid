@@ -9,11 +9,11 @@ export class RegisterImpactUseCase {
   async execute(dto: RegisterImpactDto): Promise<{ action: ImpactAction, txHash: string }> {
     const citizen = await this.citizenRepository.findById(dto.citizenId);
     if (!citizen) throw new Error('Cidadão não encontrado.');
-    const action = new ImpactAction(randomUUID(), citizen.id, dto.actionType, dto.pointsEarned, dto.validatorId, dto.evidenceUrl, dto.latitude, dto.longitude, dto.locationAddress);
+    const txHash = await this.blockchainService.mintSolidToken(citizen.walletAddress || '0x0000000000000000000000000000000000000000', dto.pointsEarned);
+    const action = new ImpactAction(randomUUID(), citizen.id, dto.actionType, dto.pointsEarned, dto.validatorId, dto.evidenceUrl, dto.latitude, dto.longitude, dto.locationAddress, dto.bloodType, txHash);
     citizen.addPoints(dto.pointsEarned);
     await this.impactRepository.save(action);
-    await this.citizenRepository.save(citizen); 
-    const txHash = await this.blockchainService.mintSolidToken(citizen.walletAddress || '0x0000000000000000000000000000000000000000', dto.pointsEarned);
+    await this.citizenRepository.save(citizen);
     return { action, txHash };
   }
 }

@@ -33,7 +33,7 @@ const base64ToBuffer = (base64: string): ArrayBuffer => {
 
 export default function EcoSolidApp() {
   const [view, setView] = useState<'LOGIN' | 'REGISTER' | 'DASHBOARD'>('LOGIN');
-  const [dashboardTab, setDashboardTab] = useState<'OVERVIEW' | 'PROFILE' | 'CONTAS'>('OVERVIEW');
+  const [dashboardTab, setDashboardTab] = useState<'OVERVIEW' | 'BENEFITS' | 'CONTAS' | 'PROFILE'>('OVERVIEW');
   const [contasWalletInput, setContasWalletInput] = useState('');
   const [contasWalletType, setContasWalletType] = useState<'metamask' | 'binance' | 'manual'>('metamask');
   const [citizen, setCitizen] = useState<any>(null);
@@ -50,7 +50,7 @@ export default function EcoSolidApp() {
   const isFirstAccess = typeof window !== 'undefined' && !localStorage.getItem('ecosolid_permissions_done');
 
   // Formulário com a carteira (walletAddress) recebida do MetaMask
-  const [formData, setFormData] = useState({ name: '', cpf: '', birthDate: '', cep: '', address: '', number: '', complement: '', phone: '', email: '', walletAddress: '' });
+  const [formData, setFormData] = useState({ name: '', cpf: '', birthDate: '', bloodType: '', cep: '', address: '', number: '', complement: '', phone: '', email: '', walletAddress: '' });
 
   // Campos separados da data de nascimento (experiência melhor que type="date")
   const [birthDay, setBirthDay] = useState('');
@@ -72,6 +72,8 @@ export default function EcoSolidApp() {
 
   // Modal Ação
   const [actionModal, setActionModal] = useState<{ open: boolean, type: string, points: number, icon: string, title: string } | null>(null);
+  const [actionBloodType, setActionBloodType] = useState('');
+  const [certificateModal, setCertificateModal] = useState<{ action: any; citizenName: string } | null>(null);
   const [location, setLocation] = useState<{ lat: number, lng: number } | null>(null);
   const [locationAddress, setLocationAddress] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -724,6 +726,23 @@ export default function EcoSolidApp() {
     setShowPermissionSetup(false);
   };
 
+  const handleRedeemBenefit = async (icon: string, name: string, cost: number, description: string) => {
+    if (!citizen || (citizen.totalPoints || 0) < cost) return;
+    setLoading(true);
+    try {
+      const res = await apiFetch('/benefits/redeem', {
+        method: 'POST',
+        body: JSON.stringify({ citizenId: citizen.id, partnerName: name, partnerIcon: icon, solidCost: cost, benefitDescription: description }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setCitizen({ ...citizen, totalPoints: citizen.totalPoints - cost });
+        alert(`🎁 Resgate concluído!\n\nCódigo: ${json.data.code}\nParceiro: ${name}\nBenefício: ${description}\n\nApresente este código no local.`);
+      } else alert(json.error);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
   const confirmAction = async () => {
     if (!citizen || !actionModal) return;
     setLoading(true);
@@ -735,16 +754,17 @@ export default function EcoSolidApp() {
           validatorId: "GOV-CREDENCIADO", evidenceUrl: imagePreview || "sem-foto",
           latitude: location?.lat, longitude: location?.lng,
           locationAddress: locationAddress || '',
+          bloodType: actionModal.type === 'BLOOD_DONATION' ? actionBloodType : undefined,
         }),
       });
       const json = await res.json();
       if (json.success) {
         setCitizen({ ...citizen, totalPoints: citizen.totalPoints + actionModal.points });
         setTxHistory([
-          { title: actionModal.title, points: `+${actionModal.points} SOLID`, date: new Date().toLocaleString(), icon: actionModal.icon, tx: json.data.txHash.slice(0, 10) + "...", img: imagePreview, lat: location?.lat, lng: location?.lng, address: locationAddress },
+          { title: actionModal.title, points: `+${actionModal.points} SOLID`, date: new Date().toLocaleString(), icon: actionModal.icon, tx: json.data.txHash, lat: location?.lat, lng: location?.lng, address: locationAddress, bloodType: actionBloodType, img: imagePreview },
           ...txHistory
         ]);
-        setActionModal(null); setImagePreview(null); setLocation(null); setLocationAddress(null);
+        setActionModal(null); setImagePreview(null); setLocation(null); setLocationAddress(null); setActionBloodType('');
       } else alert(json.error);
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -866,6 +886,26 @@ export default function EcoSolidApp() {
                   onChange={e => { const v = e.target.value; setBirthYear(v); updateBirthDate(birthDay, birthMonth, v); }}
                 />
               </div>
+            </div>
+
+            {/* Tipo Sanguíneo */}
+            <div>
+              <label className="text-xs text-slate-500 font-bold uppercase block mb-2">Tipo Sanguíneo</label>
+              <select
+                value={formData.bloodType || ''}
+                className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500 text-slate-400 appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2220%22 height=%2220%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23475569%22 stroke-width=%222%22><path d=%22M6 9l6 6 6-6%22/></svg>')] bg-no-repeat bg-[right_12px_center]"
+                onChange={e => setFormData({...formData, bloodType: e.target.value})}
+              >
+                <option value="" className="bg-slate-900">Selecione</option>
+                <option value="A+" className="bg-slate-900">A+</option>
+                <option value="A-" className="bg-slate-900">A-</option>
+                <option value="B+" className="bg-slate-900">B+</option>
+                <option value="B-" className="bg-slate-900">B-</option>
+                <option value="AB+" className="bg-slate-900">AB+</option>
+                <option value="AB-" className="bg-slate-900">AB-</option>
+                <option value="O+" className="bg-slate-900">O+</option>
+                <option value="O-" className="bg-slate-900">O-</option>
+              </select>
             </div>
 
             <div className="flex gap-2">
@@ -1038,10 +1078,96 @@ export default function EcoSolidApp() {
 
       <nav className="flex sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-white/10 p-2 items-center">
         <button onClick={() => setDashboardTab('OVERVIEW')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'OVERVIEW' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Visão Geral</button>
+        <button onClick={() => setDashboardTab('BENEFITS')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'BENEFITS' ? 'bg-white/10 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}>Benefícios</button>
         <button onClick={() => setDashboardTab('CONTAS')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'CONTAS' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Contas</button>
         <button onClick={() => setDashboardTab('PROFILE')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'PROFILE' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Dados Pessoais</button>
         <button onClick={handleLogout} className="ml-2 px-4 py-3 text-sm font-bold rounded-xl text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors" title="Sair da conta">Sair</button>
       </nav>
+
+      {dashboardTab === 'BENEFITS' && (
+        <main className="p-6 max-w-md mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <h2 className="text-2xl font-bold">🎁 Benefícios</h2>
+
+          {/* Saldo SOLID */}
+          <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-500/30 text-center">
+            <p className="text-xs text-slate-400 uppercase font-bold mb-1">Saldo Disponível</p>
+            <p className="text-4xl font-black text-amber-400">{citizen?.totalPoints || 0} <span className="text-lg text-amber-500/70">SOLID</span></p>
+          </div>
+
+          {/* Parceiros */}
+          <div className="space-y-4">
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3 hover:border-amber-500/50">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🅿️</span>
+                <div className="flex-1">
+                  <p className="font-bold text-white text-sm">Zona Azul Fortaleza</p>
+                  <p className="text-xs text-slate-400">1 hora de estacionamento</p>
+                </div>
+                <span className="text-amber-400 font-black text-lg">50</span>
+              </div>
+              <button onClick={() => handleRedeemBenefit('🅿️', 'Zona Azul Fortaleza', 50, '1 hora de estacionamento')} disabled={loading || (citizen?.totalPoints || 0) < 50} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
+                {(citizen?.totalPoints || 0) < 50 ? 'SOLID Insuficiente' : 'Resgatar'}
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3 hover:border-amber-500/50">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🏥</span>
+                <div className="flex-1">
+                  <p className="font-bold text-white text-sm">Clínica Saúde+</p>
+                  <p className="text-xs text-slate-400">Consulta clínica geral</p>
+                </div>
+                <span className="text-amber-400 font-black text-lg">500</span>
+              </div>
+              <button onClick={() => handleRedeemBenefit('🏥', 'Clínica Saúde+', 500, 'Consulta clínica geral')} disabled={loading || (citizen?.totalPoints || 0) < 500} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
+                {(citizen?.totalPoints || 0) < 500 ? 'SOLID Insuficiente' : 'Resgatar'}
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3 hover:border-amber-500/50">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">💧</span>
+                <div className="flex-1">
+                  <p className="font-bold text-white text-sm">CAGECE</p>
+                  <p className="text-xs text-slate-400">10% desconto na fatura</p>
+                </div>
+                <span className="text-amber-400 font-black text-lg">200</span>
+              </div>
+              <button onClick={() => handleRedeemBenefit('💧', 'CAGECE', 200, '10% desconto na fatura')} disabled={loading || (citizen?.totalPoints || 0) < 200} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
+                {(citizen?.totalPoints || 0) < 200 ? 'SOLID Insuficiente' : 'Resgatar'}
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3 hover:border-amber-500/50">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">⚡</span>
+                <div className="flex-1">
+                  <p className="font-bold text-white text-sm">Enel CE</p>
+                  <p className="text-xs text-slate-400">10% desconto na fatura</p>
+                </div>
+                <span className="text-amber-400 font-black text-lg">200</span>
+              </div>
+              <button onClick={() => handleRedeemBenefit('⚡', 'Enel CE', 200, '10% desconto na fatura')} disabled={loading || (citizen?.totalPoints || 0) < 200} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
+                {(citizen?.totalPoints || 0) < 200 ? 'SOLID Insuficiente' : 'Resgatar'}
+              </button>
+            </div>
+
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3 hover:border-amber-500/50">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl">🍽️</span>
+                <div className="flex-1">
+                  <p className="font-bold text-white text-sm">Restaurante Verde</p>
+                  <p className="text-xs text-slate-400">Refeição executiva</p>
+                </div>
+                <span className="text-amber-400 font-black text-lg">300</span>
+              </div>
+              <button onClick={() => handleRedeemBenefit('🍽️', 'Restaurante Verde', 300, 'Refeição executiva')} disabled={loading || (citizen?.totalPoints || 0) < 300} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
+                {(citizen?.totalPoints || 0) < 300 ? 'SOLID Insuficiente' : 'Resgatar'}
+              </button>
+            </div>
+          </div>
+        </main>
+      )}
 
       {dashboardTab === 'CONTAS' && (
         <main className="p-6 max-w-md mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -1225,6 +1351,18 @@ export default function EcoSolidApp() {
           </div>
 
           <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+            {/* Badge tipo raro */}
+            {['AB-', 'B-', 'A-', 'O-'].includes(citizen.bloodType || '') && (
+              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-center">
+                <p className="text-sm text-red-400 font-bold">🩸 Tipo Sanguíneo Raro: {citizen.bloodType}</p>
+                <p className="text-xs text-red-400/70">Seu tipo é considerado raro. Em emergências, você pode ser contatado para ajudar!</p>
+              </div>
+            )}
+            {citizen.bloodType && !['AB-', 'B-', 'A-', 'O-'].includes(citizen.bloodType) && (
+              <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/20 text-center">
+                <p className="text-sm text-red-300">🩸 Tipo Sanguíneo: {citizen.bloodType}</p>
+              </div>
+            )}
             <div><p className="text-xs text-slate-500 uppercase font-bold">CPF</p><p className="text-slate-200">{citizen.cpf}</p></div>
             <div><p className="text-xs text-slate-500 uppercase font-bold">E-mail</p><p className="text-slate-200">{citizen.email}</p></div>
             <div><p className="text-xs text-slate-500 uppercase font-bold">Telefone</p><p className="text-slate-200">{citizen.phone}</p></div>
@@ -1259,7 +1397,7 @@ export default function EcoSolidApp() {
             <button onClick={() => openActionModal('RECYCLING', 50, '♻️', 'Reciclagem')} className="p-6 rounded-2xl bg-white/5 border border-white/10 hover:border-emerald-500 flex flex-col items-center gap-2">
               <span className="text-3xl">♻️</span><span className="font-bold text-sm">Reciclar</span>
             </button>
-            <button onClick={() => openActionModal('BLOOD_DONATION', 100, '🩸', 'Doar Sangue')} className="p-6 rounded-2xl bg-white/5 border border-white/10 hover:border-red-500 flex flex-col items-center gap-2">
+            <button onClick={() => openActionModal('BLOOD_DONATION', 500, '🩸', 'Doação de Sangue')} className="p-6 rounded-2xl bg-white/5 border border-white/10 hover:border-red-500 flex flex-col items-center gap-2">
               <span className="text-3xl">🩸</span><span className="font-bold text-sm">Sangue</span>
             </button>
           </section>
@@ -1279,7 +1417,35 @@ export default function EcoSolidApp() {
                     </div>
                     {(tx.lat && tx.lng) && <p className="text-[10px] text-cyan-500 font-mono mb-2">{tx.address ? `📍 ${tx.address.substring(0, 120)}${tx.address.length > 120 ? '...' : ''}` : `GPS: ${tx.lat.toFixed(5)}, ${tx.lng.toFixed(5)}`}</p>}
                     {tx.img && <img src={tx.img} className="w-full h-24 object-cover rounded-lg mb-2 opacity-90 border border-slate-700" />}
-                    <p className="text-[10px] text-slate-500 font-mono">Blockchain: {tx.tx}</p>
+                    <p className="text-[10px] text-slate-500 font-mono mb-2">Blockchain: {typeof tx.tx === 'string' && tx.tx.length > 20 ? tx.tx.slice(0, 14) + '...' : tx.tx}</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setCertificateModal({ action: tx, citizenName: citizen?.name || 'Cidadão' })}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/30 font-bold"
+                      >
+                        📜 Ver Certificado
+                      </button>
+                      <button
+                        onClick={() => {
+                          const certText =
+`📜 CERTIFICADO DE IMPACTO — EcoSolid
+━━━━━━━━━━━━━━━━━━━━━
+👤 Cidadão: ${citizen?.name || 'Cidadão'}
+🪪 ID: ${citizen?.id || ''}
+🎯 Ação: ${tx.title}
+🩸 ${tx.bloodType ? 'Tipo Sanguíneo: ' + tx.bloodType : ''}${tx.bloodType ? '\n' : ''}⭐ Pontos: ${tx.points}
+📅 Data: ${tx.date}
+📍 Local: ${tx.address || 'Localização registrada'}
+🔗 Blockchain: ${tx.tx}
+━━━━━━━━━━━━━━━━━━━━━
+Verificado por EcoSolid — blockchain pública`;
+                          navigator.clipboard.writeText(certText).then(() => alert('Certificado copiado!'));
+                        }}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white font-bold"
+                      >
+                        📋 Compartilhar
+                      </button>
+                    </div>
                   </div>
                 ))}
             </div>
@@ -1294,6 +1460,31 @@ export default function EcoSolidApp() {
               <h3 className="text-xl font-bold">Auditoria de Ação</h3>
               <button onClick={() => {setActionModal(null); setImagePreview(null)}} className="text-2xl">&times;</button>
             </div>
+
+            {/* Tipo sanguíneo — apenas para doação de sangue */}
+            {actionModal.type === 'BLOOD_DONATION' && (
+              <div className="bg-red-500/10 p-4 rounded-xl border border-red-500/30 space-y-2">
+                <p className="text-sm font-bold text-red-400">🩸 Tipo Sanguíneo do Doador</p>
+                <select
+                  value={actionBloodType}
+                  onChange={e => setActionBloodType(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-red-500 text-slate-300 appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2220%22 height=%2220%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%23475569%22 stroke-width=%222%22><path d=%22M6 9l6 6 6-6%22/></svg>')] bg-no-repeat bg-[right_12px_center]"
+                >
+                  <option value="" className="bg-slate-900">Selecione seu tipo</option>
+                  <option value="A+" className="bg-slate-900">A+</option><option value="A-" className="bg-slate-900">A-</option>
+                  <option value="B+" className="bg-slate-900">B+</option><option value="B-" className="bg-slate-900">B-</option>
+                  <option value="AB+" className="bg-slate-900">AB+</option><option value="AB-" className="bg-slate-900">AB-</option>
+                  <option value="O+" className="bg-slate-900">O+</option><option value="O-" className="bg-slate-900">O-</option>
+                </select>
+              </div>
+            )}
+
+            {/* Endereço fixo para doação de sangue */}
+            {actionModal.type === 'BLOOD_DONATION' && (
+              <div className="bg-red-500/10 p-3 rounded-xl border border-red-500/30">
+                <p className="text-xs text-red-300">📍 Local: <strong>HemoSangue CE</strong> — Av. José Bastos, 3390 — Fortaleza/CE</p>
+              </div>
+            )}
 
             <div className="bg-white/5 p-4 rounded-xl space-y-1">
               <p className="text-sm font-bold text-emerald-400">📍 Geolocalização Obrigatória</p>
@@ -1326,6 +1517,71 @@ export default function EcoSolidApp() {
 
             <button onClick={confirmAction} disabled={loading || !imagePreview} className="w-full p-4 rounded-xl bg-emerald-500 font-bold text-white disabled:opacity-50">
               {loading ? "Processando..." : "Registrar na Blockchain"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Certificado de Impacto */}
+      {certificateModal && (
+        <div className="fixed inset-0 bg-black/95 z-50 flex flex-col p-4">
+          <div className="m-auto bg-slate-900 border border-cyan-500/30 p-6 rounded-3xl w-full max-w-md space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-bold text-cyan-400">📜 Certificado de Impacto</h3>
+              <button onClick={() => setCertificateModal(null)} className="text-2xl">&times;</button>
+            </div>
+
+            <div className="bg-white/5 p-4 rounded-xl space-y-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Cidadão:</span>
+                <span className="text-white font-bold">{certificateModal.citizenName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Ação:</span>
+                <span className="text-white font-bold">{certificateModal.action.title}</span>
+              </div>
+              {certificateModal.action.bloodType && (
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Tipo Sanguíneo:</span>
+                  <span className="text-red-400 font-bold">{certificateModal.action.bloodType}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-slate-400">Pontos:</span>
+                <span className="text-emerald-400 font-bold">{certificateModal.action.points}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Data:</span>
+                <span className="text-white">{certificateModal.action.date}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Local:</span>
+                <span className="text-white text-right max-w-[60%]">{certificateModal.action.address || 'Registrado'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Blockchain:</span>
+                <span className="text-cyan-400 font-mono text-xs">{typeof certificateModal.action.tx === 'string' ? certificateModal.action.tx.slice(0, 18) + '...' : certificateModal.action.tx}</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                const certText =
+`📜 CERTIFICADO DE IMPACTO — EcoSolid
+━━━━━━━━━━━━━━━━━━━━━
+👤 Cidadão: ${certificateModal.citizenName}
+🎯 Ação: ${certificateModal.action.title}
+${certificateModal.action.bloodType ? '🩸 Tipo Sanguíneo: ' + certificateModal.action.bloodType + '\n' : ''}⭐ Pontos: ${certificateModal.action.points}
+📅 Data: ${certificateModal.action.date}
+📍 Local: ${certificateModal.action.address || 'Registrado'}
+🔗 Blockchain: ${certificateModal.action.tx}
+━━━━━━━━━━━━━━━━━━━━━
+Verificado por EcoSolid — blockchain pública`;
+                navigator.clipboard.writeText(certText).then(() => alert('Certificado copiado para a área de transferência!'));
+              }}
+              className="w-full p-4 rounded-xl bg-cyan-500 font-bold text-white hover:bg-cyan-400 flex items-center justify-center gap-2"
+            >
+              📋 Compartilhar Certificado
             </button>
           </div>
         </div>

@@ -1,4 +1,7 @@
 import { Controller, Post, Body, Get, Patch, Param, Inject } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { CitizenDocument } from '../../infrastructure/database/mongo/schemas/CitizenSchema';
 import { RegisterCitizenUseCase } from '../../application/use-cases/RegisterCitizenUseCase';
 import { GetCitizenUseCase } from '../../application/use-cases/GetCitizenUseCase';
 import { RegisterCitizenDto } from '../../application/dtos/RegisterCitizenDto';
@@ -10,6 +13,7 @@ export class CitizenController {
     private readonly registerUseCase: RegisterCitizenUseCase,
     private readonly getUseCase: GetCitizenUseCase,
     @Inject('ICitizenRepository') private readonly citizenRepo: ICitizenRepository,
+    @InjectModel('Citizen') private readonly citizenModel: Model<CitizenDocument>,
   ) {}
 
   @Post()
@@ -28,6 +32,16 @@ export class CitizenController {
       const citizen = await this.citizenRepo.findByEmail(email);
       if (!citizen) return { success: false, error: 'Cidadão não encontrado' };
       return { success: true, data: citizen };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  @Get('blood-type/:type')
+  async getByBloodType(@Param('type') type: string) {
+    try {
+      const docs = await this.citizenModel.find({ bloodType: type.toUpperCase() }).lean().exec();
+      return { success: true, data: docs, count: docs.length };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

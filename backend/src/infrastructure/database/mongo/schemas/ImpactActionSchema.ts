@@ -11,6 +11,8 @@ export const ImpactActionSchema = new Schema({
   latitude: { type: Number }, // GPS Lat
   longitude: { type: Number }, // GPS Lng
   locationAddress: { type: String }, // Endereço legível (geocodificação reversa)
+  bloodType: { type: String }, // Tipo sanguíneo do doador (ações de doação)
+  txHash: { type: String }, // Hash da transação blockchain
   timestamp: { type: Date, default: Date.now },
 });
 
@@ -24,5 +26,7 @@ export interface ImpactActionDocument extends Omit<Document, '_id'> {
   latitude?: number;
   longitude?: number;
   locationAddress?: string;
+  bloodType?: string;
+  txHash?: string;
   timestamp: Date;
 }

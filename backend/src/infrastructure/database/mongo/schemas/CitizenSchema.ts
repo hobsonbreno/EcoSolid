@@ -8,6 +8,7 @@ export const CitizenSchema = new Schema({
   cpf: { type: String },
   email: { type: String },
   phone: { type: String },
+  bloodType: { type: String },
   birthDate: { type: String },
   address: { type: String },
   facePhotoUrl: { type: String },
@@ -25,6 +26,7 @@ export interface CitizenDocument extends Omit<Document, '_id'> {
   cpf?: string;
   email?: string;
   phone?: string;
+  bloodType?: string;
   birthDate?: string;
   address?: string;
   facePhotoUrl?: string;

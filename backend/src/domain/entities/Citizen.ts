@@ -7,6 +7,7 @@ export class Citizen {
     public cpf?: string,
     public email?: string,
     public phone?: string,
+    public bloodType?: string,
     public birthDate?: string,
     public address?: string,
     public facePhotoUrl?: string,
