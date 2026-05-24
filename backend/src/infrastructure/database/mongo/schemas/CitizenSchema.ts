@@ -19,6 +19,8 @@ export const CitizenSchema = new Schema({
   pushToken: { type: Object },
   credentialPublicKey: { type: String },
   whatsappApiKey: { type: String },
+  pixKey: { type: String },
+  pixKeyType: { type: String },
 });
 
 export interface CitizenDocument extends Omit<Document, '_id'> {
@@ -39,4 +41,6 @@ export interface CitizenDocument extends Omit<Document, '_id'> {
   credentialPublicKey?: string;
   pushToken?: any;
   whatsappApiKey?: string;
+  pixKey?: string;
+  pixKeyType?: string;
 }

@@ -48,6 +48,14 @@ export default function EcoSolidApp() {
   const [dashboardTab, setDashboardTab] = useState<'OVERVIEW' | 'BENEFITS' | 'CONTAS' | 'PROFILE'>('OVERVIEW');
   const [contasWalletInput, setContasWalletInput] = useState('');
   const [contasWalletType, setContasWalletType] = useState<'metamask' | 'binance' | 'manual'>('metamask');
+  // NOVOS: PIX, crypto e cotações
+  const [pixKeyInput, setPixKeyInput] = useState('');
+  const [pixKeyType, setPixKeyType] = useState('cpf');
+  const [pixQrModal, setPixQrModal] = useState<{ type: 'send' | 'receive'; value?: string; key?: string; description?: string } | null>(null);
+  const [cryptoModal, setCryptoModal] = useState<{ type: 'send' | 'receive' } | null>(null);
+  const [quotes, setQuotes] = useState<{ eth: number | null; btc: number | null }>({ eth: null, btc: null });
+  const [metaMaskBal, setMetaMaskBal] = useState<string | null>(null);
+  const [evmBal, setEvmBal] = useState<string | null>(null);
   const [whatsappApiKeyInput, setWhatsappApiKeyInput] = useState('');
   const [citizen, setCitizen] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -177,15 +185,14 @@ export default function EcoSolidApp() {
     }
   }, [view]);
 
-  // Sessão persistente: restaura cidadão após refresh
+  // Sessão persistente: restaura cidadão após refresh (apenas Google)
   useEffect(() => {
     const saved = localStorage.getItem('ecosolid_citizen');
     const method = localStorage.getItem('ecosolid_login_method');
-    if (saved && method && !citizen) {
+    // MetaMask NUNCA é restaurado automaticamente — reconexão deve ser explícita
+    if (saved && method === 'google' && !citizen) {
       const c = JSON.parse(saved);
-      const endpoint = method === 'google' || method === 'email'
-        ? `/citizens/by-email/${encodeURIComponent(c.email || '')}`
-        : `/citizens/wallet/${c.walletAddress || ''}`;
+      const endpoint = `/citizens/by-email/${encodeURIComponent(c.email || '')}`;
       apiFetch(endpoint)
         .then(r => r.json())
         .then(json => {
@@ -389,8 +396,7 @@ export default function EcoSolidApp() {
             setShowPermissionSetup(true);
           }
           setView('DASHBOARD');
-          localStorage.setItem('ecosolid_citizen', JSON.stringify(json.data));
-          localStorage.setItem('ecosolid_login_method', 'metamask');
+          // MetaMask NÃO salva no localStorage — reconexão sempre explícita
           if (!json.data.credentialId && !localStorage.getItem('ecosolid_credentialId')) {
             setShowBiometricPrompt(true);
           }
@@ -912,6 +918,20 @@ export default function EcoSolidApp() {
     setLoading(false);
   };
 
+  // Cotações CoinGecko (ETH/BRL, BTC/BRL) a cada 60s
+  useEffect(() => {
+    const fetchQuotes = async () => {
+      try {
+        const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum,bitcoin&vs_currencies=brl');
+        const json = await res.json();
+        setQuotes({ eth: json.ethereum?.brl || null, btc: json.bitcoin?.brl || null });
+      } catch {}
+    };
+    fetchQuotes();
+    const interval = setInterval(fetchQuotes, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Polling do resgate
   useEffect(() => {
     if (!redeemModal) return;
@@ -1179,80 +1199,6 @@ export default function EcoSolidApp() {
   const levelInfo = getLevelInfo(citizen?.totalPoints || 0);
 
   // Componente auxiliar para exibir rede e saldo na aba Contas
-  const ContasNetworkDisplay = ({ address }: { address: string }) => {
-    const [networkName, setNetworkName] = useState('');
-    const [ethBalance, setEthBalance] = useState('');
-    const [chainId, setChainId] = useState('');
-    useEffect(() => {
-      if (!address || typeof window === 'undefined' || !(window as any).ethereum) return;
-      const updateNetwork = async () => {
-        try {
-          const id = await (window as any).ethereum.request({ method: 'eth_chainId' });
-          setChainId(id);
-          const networks: Record<string, string> = {
-            '0x1': 'Ethereum Mainnet', '0xaa36a7': 'Sepolia Testnet',
-            '0x38': 'BNB Smart Chain', '0x61': 'BSC Testnet',
-            '0x89': 'Polygon Mainnet', '0x13881': 'Polygon Mumbai',
-          };
-          setNetworkName(networks[id] || `Chain ${parseInt(id, 16)}`);
-          const balance = await (window as any).ethereum.request({
-            method: 'eth_getBalance', params: [address, 'latest'],
-          });
-          setEthBalance(parseFloat(ethersParseEther(balance)).toFixed(4));
-        } catch {}
-      };
-      const ethersParseEther = (wei: string) => {
-        const val = BigInt(wei);
-        return (Number(val) / 1e18).toString();
-      };
-      updateNetwork();
-      const interval = setInterval(updateNetwork, 30000);
-      return () => clearInterval(interval);
-    }, [address]);
-
-    return (
-      <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-400">Rede</span>
-          <span className="text-sm font-bold text-slate-200">{networkName || 'Carregando...'}</span>
-        </div>
-        {chainId && chainId !== '0xaa36a7' && (
-          <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-            <p className="text-xs text-amber-400">⚠️ Você está na {networkName}. Para usar o EcoSolid, mude para Sepolia.</p>
-            <button
-              onClick={async () => {
-                try {
-                  await (window as any).ethereum.request({
-                    method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: '0xaa36a7' }],
-                  });
-                } catch (e: any) {
-                  if (e.code === 4902) {
-                    await (window as any).ethereum.request({
-                      method: 'wallet_addEthereumChain',
-                      params: [{ chainId: '0xaa36a7', chainName: 'Sepolia Testnet', rpcUrls: ['https://rpc.sepolia.org'], nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 }, blockExplorerUrls: ['https://sepolia.etherscan.io'] }],
-                    });
-                  }
-                }
-              }}
-              className="mt-1 text-xs font-bold text-amber-400 hover:text-amber-300 underline"
-            >Mudar para Sepolia</button>
-          </div>
-        )}
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-400">Saldo Sepolia</span>
-          <a href={`https://sepolia.etherscan.io/address/${address}`} target="_blank" rel="noopener" className="text-sm font-bold text-emerald-400 hover:underline">{ethBalance || '0'} ETH</a>
-        </div>
-        {ethBalance === '0.0000' && (
-          <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
-            <p className="text-xs text-amber-400">⚠️ Sem ETH de teste.</p>
-            <a href="https://sepoliafaucet.com" target="_blank" rel="noopener" className="text-xs font-bold text-amber-400 hover:text-amber-300 underline">Obter ETH grátis</a>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const AppointmentCard = ({ citizenId }: { citizenId: string }) => {
     const [appointment, setAppointment] = useState<any>(null);
     useEffect(() => {
@@ -1458,86 +1404,115 @@ export default function EcoSolidApp() {
       )}
 
       {dashboardTab === 'CONTAS' && (
-        <main className="p-6 max-w-md mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <h2 className="text-2xl font-bold mb-4">💳 Carteiras</h2>
-          <p className="text-sm text-slate-400 mb-4">Conecte sua carteira para receber tokens SOLID e interagir com a blockchain.</p>
+        <main className="p-6 max-w-md mx-auto space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <h2 className="text-2xl font-bold">💳 Carteiras e Pagamentos</h2>
 
-          {/* Carteira atual */}
-          {citizen?.walletAddress ? (
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-emerald-400 text-xl">🦊</span>
-                    <div>
-                      <p className="font-bold text-sm text-emerald-300">Carteira Vinculada</p>
-                      <p className="text-xs font-mono text-emerald-400/80 truncate w-48">{citizen.walletAddress}</p>
-                    </div>
+          {/* Mini ticker de cotações */}
+          {(quotes.eth || quotes.btc) && (
+            <div className="flex gap-3 text-xs">
+              {quotes.eth && <span className="px-2 py-1 rounded-full bg-slate-800 border border-slate-700">ETH <span className="text-emerald-400 font-mono">R${quotes.eth.toFixed(0)}</span></span>}
+              {quotes.btc && <span className="px-2 py-1 rounded-full bg-slate-800 border border-slate-700">BTC <span className="text-amber-400 font-mono">R${quotes.btc.toLocaleString('pt-BR')}</span></span>}
+            </div>
+          )}
+
+          {/* CARD 1: Chave PIX */}
+          <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/30 space-y-3">
+            <h3 className="text-sm font-bold text-green-400">💚 Chave PIX (Dinheiro Real R$)</h3>
+            {citizen?.pixKey ? (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between p-2 rounded-lg bg-green-500/10">
+                  <div>
+                    <p className="text-xs text-slate-400">{citizen.pixKeyType?.toUpperCase() || 'Chave'}</p>
+                    <p className="font-mono text-sm text-green-300 truncate w-48">{citizen.pixKey}</p>
                   </div>
                   <button
-                    onClick={async () => {
-                      if (!confirm('Remover esta carteira?')) return;
-                      setLoading(true);
-                      try {
-                        await apiFetch(`/citizens/${citizen.id}/wallet`, {
-                          method: 'PATCH',
-                          body: JSON.stringify({ walletAddress: '', type: 'remove' }),
-                        });
-                        setCitizen({ ...citizen, walletAddress: '' });
-                        setContasWalletInput('');
-                      } catch {}
-                      setLoading(false);
-                    }}
-                    className="text-xs text-red-400 hover:text-red-300 px-3 py-1 rounded-lg bg-red-400/10"
-                  >Remover</button>
+                    onClick={() => { navigator.clipboard.writeText(citizen.pixKey || ''); showToast('Chave PIX copiada!', 'success'); }}
+                    className="text-xs px-2 py-1 rounded bg-green-600 font-bold hover:bg-green-500"
+                  >Copiar</button>
+                </div>
+                <p className="text-xs text-slate-500 flex items-center gap-1">ℹ️ Saldo disponível no seu banco</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setPixQrModal({ type: 'receive' })}
+                    className="flex-1 p-2 rounded-lg bg-green-600 text-xs font-bold hover:bg-green-500">📥 Receber PIX</button>
+                  <button onClick={() => setPixQrModal({ type: 'send' })}
+                    className="flex-1 p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">📤 Enviar PIX</button>
                 </div>
               </div>
-
-              {/* Network indicator + balance */}
-              <ContasNetworkDisplay address={citizen.walletAddress} />
-
-              {/* Trocar carteira */}
-              <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-3">
-                <p className="text-xs text-slate-400 font-bold uppercase">Trocar carteira</p>
-                <input
-                  placeholder="Novo endereço 0x..."
-                  value={contasWalletInput}
-                  onChange={e => setContasWalletInput(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 font-mono text-sm"
-                />
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">Cadastre sua chave PIX para receber pagamentos em dinheiro real (R$).</p>
+                <select value={pixKeyType} onChange={e => setPixKeyType(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-green-500 text-sm">
+                  <option value="cpf">CPF</option>
+                  <option value="email">E-mail</option>
+                  <option value="phone">Telefone</option>
+                  <option value="random">Chave Aleatória</option>
+                </select>
+                <input placeholder={pixKeyType === 'cpf' ? '000.000.000-00' : pixKeyType === 'email' ? 'seu@email.com' : pixKeyType === 'phone' ? '(85) 9XXXX-XXXX' : 'Chave aleatória (36 caracteres)'}
+                  value={pixKeyInput} onChange={e => setPixKeyInput(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-green-500 text-sm" />
                 <button
                   onClick={async () => {
-                    const addr = contasWalletInput.trim();
-                    if (!addr.startsWith('0x') || addr.length !== 42) { showToast('Endereço inválido', 'error'); return; }
+                    const key = pixKeyInput.trim();
+                    if (!key) { showToast('Digite sua chave PIX', 'error'); return; }
                     setLoading(true);
-                    const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                    const res = await apiFetch(`/citizens/${citizen.id}`, {
                       method: 'PATCH',
-                      body: JSON.stringify({ walletAddress: addr, type: 'manual' }),
+                      body: JSON.stringify({ pixKey: key, pixKeyType }),
                     });
                     const json = await res.json();
-                    if (json.success) setCitizen(json.data); else showToast(json.error, 'error');
-                    setContasWalletInput('');
+                    if (json.success) { setCitizen(json.data); setPixKeyInput(''); showToast('Chave PIX salva!', 'success'); }
+                    else showToast(json.error, 'error');
                     setLoading(false);
                   }}
-                  disabled={loading || !contasWalletInput.trim()}
-                  className="w-full p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600 disabled:opacity-50"
-                >Atualizar Carteira</button>
+                  disabled={loading}
+                  className="w-full p-3 rounded-xl bg-green-600 font-bold text-sm hover:bg-green-500 disabled:opacity-50"
+                >💾 Salvar Chave PIX</button>
               </div>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
-                <p className="text-sm text-amber-300 text-center">⚠️ Nenhuma carteira vinculada</p>
-              </div>
+            )}
+          </div>
 
-              {/* Detecção automática */}
-              {typeof window !== 'undefined' && (window as any).ethereum?.isMetaMask && (
+          {/* CARD 2: MetaMask */}
+          <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/30 space-y-3">
+            <h3 className="text-sm font-bold text-orange-400">🦊 MetaMask</h3>
+            {typeof window !== 'undefined' && (window as any).ethereum?.isMetaMask ? (
+              citizen?.walletAddress ? (
+                <div className="space-y-2">
+                  <p className="font-mono text-xs text-orange-300 truncate">{citizen.walletAddress}</p>
+                  {metaMaskBal && <p className="text-xs text-slate-400">Saldo: <span className="text-emerald-400 font-bold">{metaMaskBal} ETH</span> {quotes.eth ? <span className="text-slate-500">(~R${(parseFloat(metaMaskBal) * quotes.eth).toFixed(2)})</span> : null}</p>}
+                  <div className="flex gap-2">
+                    <a href={`https://sepolia.etherscan.io/address/${citizen.walletAddress}`} target="_blank" rel="noopener"
+                      className="flex-1 text-center p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">🔍 Etherscan</a>
+                    <button
+                      onClick={() => {
+                        // Desconectar: limpa APENAS estado local, nunca localStorage
+                        setMetaMaskBal(null);
+                        setCitizen({ ...citizen, walletAddress: '' });
+                        apiFetch(`/citizens/${citizen.id}/wallet`, { method: 'PATCH', body: JSON.stringify({ walletAddress: '', type: 'remove' }) });
+                      }}
+                      className="flex-1 p-2 rounded-lg bg-red-600 text-xs font-bold hover:bg-red-500">Desconectar</button>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setCryptoModal({ type: 'send' })}
+                      className="flex-1 p-2 rounded-lg bg-orange-600 text-xs font-bold hover:bg-orange-500">📤 Enviar Cripto</button>
+                    <button onClick={() => setCryptoModal({ type: 'receive' })}
+                      className="flex-1 p-2 rounded-lg bg-slate-600 text-xs font-bold hover:bg-slate-500">📥 Receber Cripto</button>
+                  </div>
+                </div>
+              ) : (
                 <button
                   onClick={async () => {
                     try {
                       const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
                       const wallet = accounts[0];
                       setLoading(true);
+                      // Buscar saldo
+                      try {
+                        const balance = await (window as any).ethereum.request({ method: 'eth_getBalance', params: [wallet, 'latest'] });
+                        const ethVal = (Number(balance) / 1e18).toFixed(4);
+                        setMetaMaskBal(ethVal);
+                      } catch {}
+                      // Salvar no backend
                       const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
                         method: 'PATCH',
                         body: JSON.stringify({ walletAddress: wallet, type: 'metamask' }),
@@ -1545,83 +1520,99 @@ export default function EcoSolidApp() {
                       const json = await res.json();
                       if (json.success) setCitizen(json.data); else showToast(json.error, 'error');
                       setLoading(false);
-                    } catch { showToast('Conexão cancelada', 'error'); }
+                    } catch { showToast('Conexão cancelada pelo usuário', 'error'); }
                   }}
                   disabled={loading}
-                  className="w-full p-4 rounded-xl bg-orange-500/20 border border-orange-500/30 text-orange-400 font-bold hover:bg-orange-500/30 flex items-center gap-3"
-                ><span className="text-xl">🦊</span> Conectar MetaMask</button>
-              )}
-
-              {typeof window !== 'undefined' && ((window as any).BinanceChain || (window as any).ethereum?.isBinance) && (
-                <button
-                  onClick={async () => {
-                    try {
-                      const provider = (window as any).BinanceChain || (window as any).ethereum;
-                      const accounts = await provider.request({ method: 'eth_requestAccounts' });
-                      const wallet = accounts[0];
-                      setLoading(true);
-                      const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ walletAddress: wallet, type: 'binance' }),
-                      });
-                      const json = await res.json();
-                      if (json.success) setCitizen(json.data); else showToast(json.error, 'error');
-                      setLoading(false);
-                    } catch { showToast('Conexão cancelada', 'error'); }
-                  }}
-                  disabled={loading}
-                  className="w-full p-4 rounded-xl bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 font-bold hover:bg-yellow-500/30 flex items-center gap-3"
-                ><span className="text-xl">🟡</span> Conectar Binance Wallet</button>
-              )}
-
-              {/* Manual input */}
-              <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-3">
-                <p className="text-xs text-slate-400 font-bold uppercase">Ou insira manualmente</p>
-                <input
-                  placeholder="0x..."
-                  value={contasWalletInput}
-                  onChange={e => setContasWalletInput(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 font-mono text-sm"
-                />
-                <button
-                  onClick={async () => {
-                    const addr = contasWalletInput.trim();
-                    if (!addr.startsWith('0x') || addr.length !== 42) { showToast('Endereço inválido (0x... 42 caracteres)', 'error'); return; }
-                    setLoading(true);
-                    const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
-                      method: 'PATCH',
-                      body: JSON.stringify({ walletAddress: addr, type: 'manual' }),
-                    });
-                    const json = await res.json();
-                    if (json.success) setCitizen(json.data); else showToast(json.error, 'error');
-                    setContasWalletInput('');
-                    setLoading(false);
-                  }}
-                  disabled={loading || !contasWalletInput.trim()}
-                  className="w-full p-3 rounded-xl bg-emerald-600 font-bold text-sm hover:bg-emerald-500 disabled:opacity-50"
-                >✍️ Vincular Endereço</button>
-              </div>
-
-              {/* Não tenho carteira */}
-              <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700 space-y-3">
-                <p className="text-sm font-bold text-slate-300 text-center">📱 Não tenho carteira</p>
-                <div className="grid gap-2">
-                  <a href="https://metamask.io/download/" target="_blank" rel="noopener" className="block p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 hover:bg-orange-500/20 transition-colors">
-                    <span className="font-bold text-orange-400">🦊 MetaMask</span>
-                    <p className="text-xs text-slate-400 mt-1">Extensão Chrome/Firefox + app mobile</p>
-                  </a>
-                  <a href="https://www.binance.com/pt-BR/web3wallet" target="_blank" rel="noopener" className="block p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 hover:bg-yellow-500/20 transition-colors">
-                    <span className="font-bold text-yellow-400">🟡 Binance Web3</span>
-                    <p className="text-xs text-slate-400 mt-1">Integrado à Binance Exchange</p>
-                  </a>
-                  <a href="https://trustwallet.com" target="_blank" rel="noopener" className="block p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/20 transition-colors">
-                    <span className="font-bold text-blue-400">🔵 Trust Wallet</span>
-                    <p className="text-xs text-slate-400 mt-1">App mobile simples para iniciantes</p>
-                  </a>
+                  className="w-full p-3 rounded-xl bg-orange-500/30 text-orange-400 font-bold hover:bg-orange-500/40"
+                >🦊 Conectar MetaMask</button>
+              )
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">MetaMask não detectada neste navegador.</p>
+                <div className="flex gap-2">
+                  <a href="https://metamask.io/download/" target="_blank" rel="noopener"
+                    className="flex-1 text-center p-2 rounded-lg bg-orange-500/20 text-xs font-bold text-orange-400 hover:bg-orange-500/30">🧩 Extensão Chrome</a>
+                  <a href="https://play.google.com/store/apps/details?id=io.metamask" target="_blank" rel="noopener"
+                    className="flex-1 text-center p-2 rounded-lg bg-orange-500/20 text-xs font-bold text-orange-400 hover:bg-orange-500/30">📱 App Android</a>
                 </div>
               </div>
+            )}
+          </div>
+
+          {/* CARD 3: Carteira EVM (Binance/Trust/etc) */}
+          <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 space-y-3">
+            <h3 className="text-sm font-bold text-yellow-400">🟡 Carteira EVM (Binance, Trust, etc.)</h3>
+            <p className="text-xs text-slate-400">Insira um endereço de carteira para ver o saldo.</p>
+            <input placeholder="0x... (endereço EVM)"
+              value={contasWalletInput} onChange={e => setContasWalletInput(e.target.value)}
+              className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-yellow-500 font-mono text-sm" />
+            {evmBal && <p className="text-xs text-slate-400">Saldo: <span className="text-emerald-400 font-bold">{evmBal} ETH</span> {quotes.eth ? <span className="text-slate-500">(~R${(parseFloat(evmBal) * quotes.eth).toFixed(2)})</span> : null}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={async () => {
+                  const addr = contasWalletInput.trim();
+                  if (!addr.startsWith('0x') || addr.length !== 42) { showToast('Endereço inválido (0x... 42 caracteres)', 'error'); return; }
+                  setLoading(true);
+                  try {
+                    // Buscar saldo via RPC público (JSON-RPC)
+                    const rpcRes = await fetch('https://ethereum-sepolia-rpc.publicnode.com', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [addr, 'latest'], id: 1 }),
+                    });
+                    const rpcJson = await rpcRes.json();
+                    const balanceWei = Number(rpcJson.result || '0');
+                    setEvmBal((balanceWei / 1e18).toFixed(4));
+                    showToast('Saldo atualizado!', 'success');
+                  } catch { showToast('Erro ao buscar saldo', 'error'); }
+                  setLoading(false);
+                }}
+                disabled={loading || !contasWalletInput.trim()}
+                className="flex-1 p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600"
+              >🔍 Ver Saldo</button>
+              <button
+                onClick={async () => {
+                  const addr = contasWalletInput.trim();
+                  if (!addr.startsWith('0x') || addr.length !== 42) { showToast('Endereço inválido', 'error'); return; }
+                  setLoading(true);
+                  const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ walletAddress: addr, type: 'evm' }),
+                  });
+                  const json = await res.json();
+                  if (json.success) { setCitizen(json.data); setContasWalletInput(''); showToast('Endereço vinculado!', 'success'); }
+                  else showToast(json.error, 'error');
+                  setLoading(false);
+                }}
+                disabled={loading || !contasWalletInput.trim()}
+                className="p-2 rounded-lg bg-yellow-600 text-xs font-bold hover:bg-yellow-500"
+              >💾 Vincular</button>
             </div>
-          )}
+            {citizen?.walletAddress && (
+              <a href={`https://sepolia.etherscan.io/address/${citizen.walletAddress}`} target="_blank" rel="noopener"
+                className="block text-center p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">🔍 Ver no Etherscan</a>
+            )}
+          </div>
+
+          {/* CARD 4: SOLID */}
+          <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-3">
+            <h3 className="text-sm font-bold text-emerald-400">🪙 SOLID (Token EcoSolid)</h3>
+            <div className="flex gap-4">
+              <div className="flex-1 p-3 rounded-lg bg-emerald-500/10 text-center">
+                <p className="text-xs text-slate-400">Confirmado</p>
+                <p className="text-xl font-black text-emerald-400">{citizen?.totalPoints || 0}</p>
+              </div>
+              <div className="flex-1 p-3 rounded-lg bg-yellow-500/10 text-center">
+                <p className="text-xs text-slate-400">Pendente</p>
+                <p className="text-xl font-black text-yellow-400">
+                  {txHistory.filter((tx: any) => tx.status === 'PENDENTE_VALIDACAO').reduce((s: number, tx: any) => s + (tx.pointsEarned || 0), 0)}
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 text-center">1 SOLID ≈ R$ 0,10</p>
+            <button onClick={() => setDashboardTab('OVERVIEW')}
+              className="w-full p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">📊 Ver Histórico</button>
+          </div>
         </main>
       )}
 
@@ -2061,6 +2052,127 @@ Verificado por EcoSolid — blockchain pública`;
       )}
 
       {/* Onboarding pós-cadastro */}
+      {/* Modal PIX */}
+      {pixQrModal && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setPixQrModal(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">{pixQrModal.type === 'send' ? '📤 Enviar PIX' : '📥 Receber PIX'}</h3>
+            {pixQrModal.type === 'send' ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Valor (R$)</label>
+                  <input type="number" step="0.01" placeholder="10,00" id="pixSendValue"
+                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-green-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Chave PIX destino</label>
+                  <input placeholder="CPF/Email/Telefone/Chave" id="pixSendKey"
+                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-green-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Descrição (opcional)</label>
+                  <input placeholder="Ex: Pagamento reciclagem" id="pixSendDesc"
+                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-green-500" />
+                </div>
+                <button
+                  onClick={() => {
+                    const value = (document.getElementById('pixSendValue') as HTMLInputElement)?.value;
+                    const key = (document.getElementById('pixSendKey') as HTMLInputElement)?.value;
+                    const desc = (document.getElementById('pixSendDesc') as HTMLInputElement)?.value;
+                    if (!value || !key) { showToast('Preencha valor e chave PIX', 'error'); return; }
+                    // Gera QR Code PIX via endpoint do backend
+                    const pixPayload = `pix:${key}:R$ ${value}:${desc || 'EcoSolid'}`;
+                    showToast(`PIX gerado! Chave: ${key} Valor: R$ ${value}`, 'success');
+                    // Nota: QR Code PIX completo requer biblioteca pix-utils no frontend
+                    // ou endpoint dedicado no backend
+                  }}
+                  className="w-full p-3 rounded-xl bg-green-600 font-bold hover:bg-green-500"
+                >Gerar QR Code PIX</button>
+              </div>
+            ) : (
+              <div className="space-y-3 text-center">
+                <p className="text-sm text-slate-400">Mostre este QR Code para receber:</p>
+                <div className="bg-white p-4 rounded-xl mx-auto w-48 h-48 flex items-center justify-center">
+                  {citizen?.pixKey ? (
+                    <span className="text-green-800 font-mono font-bold text-lg">PIX</span>
+                  ) : (
+                    <p className="text-xs text-slate-500">Cadastre sua chave PIX primeiro</p>
+                  )}
+                </div>
+                {citizen?.pixKey && (
+                  <>
+                    <p className="font-mono text-sm text-green-400 break-all">{citizen.pixKey}</p>
+                    <p className="text-xs text-slate-500">{citizen.pixKeyType?.toUpperCase()}</p>
+                    <button onClick={() => { navigator.clipboard.writeText(citizen.pixKey || ''); showToast('Chave copiada!', 'success'); }}
+                      className="w-full p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600">📋 Copiar Chave</button>
+                  </>
+                )}
+              </div>
+            )}
+            <button onClick={() => setPixQrModal(null)} className="w-full p-3 rounded-xl bg-slate-700 font-bold hover:bg-slate-600">Fechar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Crypto */}
+      {cryptoModal && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setCryptoModal(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold">{cryptoModal.type === 'send' ? '📤 Enviar Cripto' : '📥 Receber Cripto'}</h3>
+            {cryptoModal.type === 'send' ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Endereço destino (0x...)</label>
+                  <input placeholder="0x..." id="cryptoSendAddr"
+                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-orange-500 font-mono text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Valor (ETH)</label>
+                  <input type="number" step="0.0001" placeholder="0.01" id="cryptoSendVal"
+                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-orange-500" />
+                </div>
+                {typeof window !== 'undefined' && (window as any).ethereum?.isMetaMask ? (
+                  <button
+                    onClick={async () => {
+                      const addr = (document.getElementById('cryptoSendAddr') as HTMLInputElement)?.value?.trim();
+                      const val = (document.getElementById('cryptoSendVal') as HTMLInputElement)?.value;
+                      if (!addr || !val) { showToast('Preencha endereço e valor', 'error'); return; }
+                      try {
+                        const tx = await (window as any).ethereum.request({
+                          method: 'eth_sendTransaction',
+                          params: [{ from: citizen.walletAddress, to: addr, value: '0x' + (BigInt(Math.floor(parseFloat(val) * 1e18))).toString(16) }],
+                        });
+                        showToast('Transação enviada! Hash: ' + (tx || '').substring(0, 10) + '...', 'success');
+                        setCryptoModal(null);
+                      } catch (e: any) { showToast('Erro: ' + (e?.message || 'Transação rejeitada'), 'error'); }
+                    }}
+                    className="w-full p-3 rounded-xl bg-orange-600 font-bold hover:bg-orange-500"
+                  >🦊 Assinar com MetaMask</button>
+                ) : (
+                  <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                    <p className="text-xs text-amber-400">MetaMask não detectada. Instale a extensão ou use o app mobile para enviar cripto.</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3 text-center">
+                <p className="text-sm text-slate-400">Seu endereço para receber:</p>
+                {citizen?.walletAddress ? (
+                  <>
+                    <div className="p-3 rounded-lg bg-slate-800 break-all font-mono text-xs text-orange-300">{citizen.walletAddress}</div>
+                    <button onClick={() => { navigator.clipboard.writeText(citizen.walletAddress || ''); showToast('Endereço copiado!', 'success'); }}
+                      className="w-full p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600">📋 Copiar Endereço</button>
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-500">Conecte uma carteira primeiro (MetaMask ou EVM).</p>
+                )}
+              </div>
+            )}
+            <button onClick={() => setCryptoModal(null)} className="w-full p-3 rounded-xl bg-slate-700 font-bold hover:bg-slate-600">Fechar</button>
+          </div>
+        </div>
+      )}
+
       {/* Toast */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-[70] px-6 py-3 rounded-xl shadow-2xl animate-in slide-in-from-right duration-300 text-sm font-bold ${

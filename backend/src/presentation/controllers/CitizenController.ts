@@ -72,7 +72,7 @@ export class CitizenController {
   @Patch(':id')
   async updateCitizen(@Param('id') id: string, @Body() body: any) {
     try {
-      const allowedFields = ['bloodType', 'whatsappApiKey', 'phone', 'email', 'address'];
+      const allowedFields = ['bloodType', 'whatsappApiKey', 'phone', 'email', 'address', 'pixKey', 'pixKeyType'];
       const update: any = {};
       for (const key of allowedFields) {
         if (body[key] !== undefined) update[key] = body[key];
