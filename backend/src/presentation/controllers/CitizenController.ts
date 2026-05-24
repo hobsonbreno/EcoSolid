@@ -40,7 +40,23 @@ export class CitizenController {
   @Get('blood-type/:type')
   async getByBloodType(@Param('type') type: string) {
     try {
-      const docs = await this.citizenModel.find({ bloodType: type.toUpperCase() }).lean().exec();
+      const bloodType = type.toUpperCase();
+      // Buscar cidadãos com bloodType OU que doaram sangue daquele tipo
+      const impactModel = (this.citizenModel as any).db?.model('ImpactAction') ||
+        require('mongoose').model('ImpactAction');
+      const donors = await impactModel
+        .find({ actionType: 'BLOOD_DONATION', bloodType })
+        .distinct('citizenId')
+        .lean()
+        .exec()
+        .catch(() => []);
+
+      const query: any = { $or: [{ bloodType }] };
+      if (donors.length > 0) {
+        query.$or.push({ _id: { $in: donors } });
+      }
+
+      const docs = await this.citizenModel.find(query).lean().exec();
       return { success: true, data: docs, count: docs.length };
     } catch (error: any) {
       return { success: false, error: error.message };

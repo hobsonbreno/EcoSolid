@@ -40,6 +40,15 @@ export default function GestaoPage() {
   const [pendingActions, setPendingActions] = useState<any[]>([]);
   const [pendingRedemptions, setPendingRedemptions] = useState<any[]>([]);
 
+  // Sprint 6: Parceiros
+  const [partnerForm, setPartnerForm] = useState({ cnpj: '', nomeFantasia: '', razaoSocial: '', logradouro: '', numero: '', bairro: '', municipio: '', uf: '', cep: '', telefone: '', responsavel: '', segmento: 'Outro' });
+  const [partners, setPartners] = useState<any[]>([]);
+  const [partnerData, setPartnerData] = useState<any>(null); // dados do parceiro logado
+  // Hospital selecionado (coord dinâmicas)
+  const [selectedHospital, setSelectedHospital] = useState<{ nome: string; lat: number; lng: number } | null>(null);
+  const [hospitalSearch, setHospitalSearch] = useState('');
+  const [hospitals, setHospitals] = useState<any[]>([]);
+
   const apiFetch = (url: string, opts?: RequestInit) => fetch(`${API}${url}`, opts);
 
   // Haversine distance
@@ -96,7 +105,6 @@ export default function GestaoPage() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const isPartner = partnerName && authKey !== 'ecosolid-admin-2026';
     // Tenta como admin
     fetch(`${API}/admin/metrics`, { headers: { 'x-admin-key': authKey } })
       .then(r => r.json())
@@ -105,10 +113,28 @@ export default function GestaoPage() {
           setRole('admin');
           setAuthKey(authKey);
           fetchAdminData(authKey);
-        } else if (partnerName) {
-          // Tenta como parceiro
-          setRole('partner');
-          fetchPartnerData(partnerName);
+        } else if (partnerName.trim() || authKey.trim().length === 8) {
+          // Try partner code login
+          const code = authKey.trim().toUpperCase();
+          fetch(`${API}/partners/by-code/${code}`)
+            .then(r => r.json())
+            .then(json => {
+              if (json.success && json.data.ativo) {
+                setPartnerData(json.data);
+                localStorage.setItem('gestao_partner_id', json.data._id);
+                localStorage.setItem('gestao_partner_name', json.data.nomeFantasia);
+                localStorage.setItem('gestao_partner_segmento', json.data.segmento);
+                setRole('partner');
+                setPartnerName(json.data.nomeFantasia);
+                // Fetch partner's segment pending redemptions
+                fetch(`${API}/benefits/pending?segment=${json.data.segmento}`).then(r => r.json()).then(j => {
+                  if (j.success) setPendingRedemptions(j.data);
+                });
+              } else {
+                alert('Código de acesso inválido ou parceiro inativo. Solicite ao admin.');
+              }
+            })
+            .catch(() => alert('Erro ao conectar'));
         } else {
           alert('Credenciais inválidas.');
         }
@@ -119,6 +145,10 @@ export default function GestaoPage() {
   const handleLogout = () => {
     setRole(null); setAuthKey(''); setPartnerName(''); setMetrics(null); setCitizens([]);
     setBloodStats([]); setInterests([]); setAllRedemptions([]); setPartnerRedemptions([]);
+    setPartnerData(null); setSelectedHospital(null); setPartners([]);
+    localStorage.removeItem('gestao_partner_id');
+    localStorage.removeItem('gestao_partner_name');
+    localStorage.removeItem('gestao_partner_segmento');
     setSidebarOpen(false);
   };
 
@@ -166,6 +196,13 @@ export default function GestaoPage() {
   // Redirect old routes
   useEffect(() => { if (typeof window !== 'undefined' && (window.location.pathname === '/admin' || window.location.pathname === '/parceiro')) { window.location.href = '/gestao'; } }, []);
 
+  // Load partners list (admin)
+  useEffect(() => {
+    if (role === 'admin' && tab === 'partners') {
+      fetch(`${API}/partners`).then(r => r.json()).then(j => { if (j.success) setPartners(j.data); });
+    }
+  }, [role, tab]);
+
   if (!role) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
@@ -175,10 +212,10 @@ export default function GestaoPage() {
             <h1 className="text-2xl font-black">Portal de Gestão</h1>
             <p className="text-sm text-slate-400">Área administrativa EcoSolid</p>
           </div>
-          <input required placeholder="Nome do Parceiro (opcional)" value={partnerName}
+          <input placeholder="Nome do Parceiro (opcional)" value={partnerName}
             onChange={e => setPartnerName(e.target.value)}
             className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-cyan-500" />
-          <input required type="password" placeholder="Chave de Acesso" value={authKey}
+          <input required placeholder="Código de Acesso (8 dígitos)" value={authKey}
             onChange={e => setAuthKey(e.target.value)}
             className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-cyan-500" />
           <button type="submit" disabled={loading}
@@ -305,9 +342,37 @@ export default function GestaoPage() {
                 <option value="">Tipo Sanguíneo</option>
                 {['A+','A-','B+','B-','AB+','AB-','O+','O-'].map(t => <option key={t} value={t}>{t}</option>)}
               </select>
-              <input required placeholder="Hospital" value={alertForm.hospital}
-                onChange={e => setAlertForm({ ...alertForm, hospital: e.target.value })}
+              <input required placeholder="Buscar hospital parceiro..." value={hospitalSearch}
+                onChange={async e => {
+                  setHospitalSearch(e.target.value);
+                  if (e.target.value.length >= 2) {
+                    const res = await fetch(`${API}/partners/by-segment/Hospital`);
+                    const json = await res.json();
+                    if (json.success) {
+                      const filtered = json.data.filter((h: any) =>
+                        h.nomeFantasia.toLowerCase().includes(e.target.value.toLowerCase()) ||
+                        h.municipio?.toLowerCase().includes(e.target.value.toLowerCase())
+                      );
+                      setHospitals(filtered);
+                    }
+                  } else setHospitals([]);
+                }}
                 className="w-full p-3 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-red-500" />
+              {hospitals.length > 0 && (
+                <div className="max-h-40 overflow-y-auto rounded-xl bg-slate-800 border border-slate-700">
+                  {hospitals.map((h: any) => (
+                    <button key={h._id} type="button" onClick={() => {
+                      setAlertForm({ ...alertForm, hospital: h.nomeFantasia, location: `${h.logradouro || ''} ${h.numero || ''} - ${h.bairro || ''}, ${h.municipio || ''}/${h.uf || ''}`.trim() });
+                      if (h.latitude && h.longitude) setSelectedHospital({ nome: h.nomeFantasia, lat: h.latitude, lng: h.longitude });
+                      setHospitalSearch(h.nomeFantasia);
+                      setHospitals([]);
+                    }} className="w-full text-left p-2 hover:bg-slate-700 text-sm border-b border-slate-700 last:border-0">
+                      <span className="font-bold">{h.nomeFantasia}</span>
+                      <span className="text-xs text-slate-400 ml-2">{h.municipio}/{h.uf}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <input required placeholder="Mensagem de urgência" value={alertForm.message}
                 onChange={e => setAlertForm({ ...alertForm, message: e.target.value })}
                 className="w-full p-3 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-red-500" />
@@ -337,7 +402,9 @@ export default function GestaoPage() {
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {donors
                     .map((d: any) => {
-                      const dist = d.latitude && d.longitude ? haversineKm(d.latitude, d.longitude, HEMOSANGUE_LAT, HEMOSANGUE_LNG) : Infinity;
+                      const refLat = selectedHospital?.lat ?? HEMOSANGUE_LAT;
+                      const refLng = selectedHospital?.lng ?? HEMOSANGUE_LNG;
+                      const dist = d.latitude && d.longitude ? haversineKm(d.latitude, d.longitude, refLat, refLng) : Infinity;
                       return { ...d, _dist: dist };
                     })
                     .sort((a: any, b: any) => a._dist - b._dist)
@@ -350,7 +417,7 @@ export default function GestaoPage() {
                             <p className="text-xs font-mono text-red-400">🩸 {d.bloodType}</p>
                           </div>
                           <span className="text-xs font-bold text-emerald-400">
-                            {d._dist === Infinity ? '—' : `${d._dist.toFixed(1)} km do HemoSangue CE`}
+                            {d._dist === Infinity ? '—' : `${d._dist.toFixed(1)} km do ${selectedHospital?.nome ?? 'HemoSangue CE'}`}
                           </span>
                         </div>
                         <button
@@ -473,6 +540,79 @@ export default function GestaoPage() {
         {role === 'admin' && tab === 'partners' && (
           <div className="space-y-4">
             <h1 className="text-2xl font-black">🤝 Parceiros</h1>
+            {/* Cadastrar novo parceiro */}
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              setLoading(true);
+              const res = await fetch(`${API}/partners`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(partnerForm) });
+              const json = await res.json();
+              if (json.success) {
+                setPartners(prev => [json.data, ...prev]);
+                setPartnerForm({ cnpj: '', nomeFantasia: '', razaoSocial: '', logradouro: '', numero: '', bairro: '', municipio: '', uf: '', cep: '', telefone: '', responsavel: '', segmento: 'Outro' });
+                alert(`Parceiro cadastrado! Código de acesso: ${json.data.codigoAcesso}`);
+              } else alert(json.error || 'Erro ao cadastrar');
+              setLoading(false);
+            }} className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
+              <p className="font-bold text-sm">Cadastrar Novo Parceiro</p>
+              <input placeholder="CNPJ (XX.XXX.XXX/XXXX-XX)" value={partnerForm.cnpj} onChange={e => setPartnerForm(p => ({...p, cnpj: e.target.value}))}
+                onBlur={async () => {
+                  const cleanCnpj = partnerForm.cnpj.replace(/\D/g, '');
+                  if (cleanCnpj.length !== 14) return;
+                  try {
+                    const res = await fetch(`https://publica.cnpj.ws/cnpj/${cleanCnpj}`);
+                    const json = await res.json();
+                    if (json.estabelecimento) {
+                      const e = json.estabelecimento;
+                      setPartnerForm(p => ({...p,
+                        nomeFantasia: e.nome_fantasia || p.nomeFantasia,
+                        razaoSocial: e.razao_social || p.razaoSocial,
+                        logradouro: e.logradouro || p.logradouro,
+                        numero: e.numero || p.numero,
+                        bairro: e.bairro || p.bairro,
+                        municipio: e.cidade?.nome || p.municipio,
+                        uf: e.estado?.sigla || p.uf,
+                        cep: e.cep || p.cep,
+                        telefone: `${e.ddd1 || ''}${e.telefone1 || ''}`.trim() || p.telefone,
+                      }));
+                    }
+                  } catch {}
+                }}
+                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+              <input placeholder="Nome Fantasia" value={partnerForm.nomeFantasia} onChange={e => setPartnerForm(p => ({...p, nomeFantasia: e.target.value}))}
+                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+              <input placeholder="Razão Social" value={partnerForm.razaoSocial} onChange={e => setPartnerForm(p => ({...p, razaoSocial: e.target.value}))}
+                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+              <div className="grid grid-cols-2 gap-2">
+                <input placeholder="Logradouro" value={partnerForm.logradouro} onChange={e => setPartnerForm(p => ({...p, logradouro: e.target.value}))}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+                <input placeholder="Número" value={partnerForm.numero} onChange={e => setPartnerForm(p => ({...p, numero: e.target.value}))}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input placeholder="Bairro" value={partnerForm.bairro} onChange={e => setPartnerForm(p => ({...p, bairro: e.target.value}))}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+                <input placeholder="CEP" value={partnerForm.cep} onChange={e => setPartnerForm(p => ({...p, cep: e.target.value}))}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input placeholder="Município" value={partnerForm.municipio} onChange={e => setPartnerForm(p => ({...p, municipio: e.target.value}))}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+                <input placeholder="UF" value={partnerForm.uf} onChange={e => setPartnerForm(p => ({...p, uf: e.target.value}))} maxLength={2}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+              </div>
+              <input placeholder="Telefone" value={partnerForm.telefone} onChange={e => setPartnerForm(p => ({...p, telefone: e.target.value}))}
+                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+              <input placeholder="Responsável" value={partnerForm.responsavel} onChange={e => setPartnerForm(p => ({...p, responsavel: e.target.value}))}
+                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm" />
+              <select value={partnerForm.segmento} onChange={e => setPartnerForm(p => ({...p, segmento: e.target.value}))}
+                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 text-sm text-slate-400">
+                {['Hospital', 'Estacionamento', 'Restaurante', 'Farmacia', 'Energia', 'Outro'].map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <button type="submit" disabled={loading}
+                className="w-full p-3 rounded-xl bg-emerald-600 font-bold text-sm hover:bg-emerald-500 disabled:opacity-50">Cadastrar Parceiro</button>
+            </form>
+            {/* Interesses de Parceria */}
+            {interests.length > 0 && <h2 className="text-lg font-bold mt-6">Interesses de Parceria</h2>}
             {interests.map((p: any) => (
               <div key={p._id} className="p-4 rounded-xl bg-white/5 border border-white/10 flex justify-between items-center">
                 <div>
@@ -487,6 +627,16 @@ export default function GestaoPage() {
                   <button onClick={() => handleApprovePartner(p._id)} disabled={loading}
                     className="px-4 py-2 rounded-xl bg-emerald-500 text-sm font-bold hover:bg-emerald-400">Aprovar</button>
                 )}
+              </div>
+            ))}
+            {/* Parceiros Cadastrados */}
+            {partners.length > 0 && <h2 className="text-lg font-bold mt-6">Parceiros Cadastrados</h2>}
+            {partners.map((p: any) => (
+              <div key={p._id} className="p-3 rounded-xl bg-white/5 border border-white/10">
+                <p className="font-bold text-sm">{p.nomeFantasia}</p>
+                <p className="text-xs text-slate-400">{p.segmento} | {p.municipio}/{p.uf}</p>
+                <p className="text-xs font-mono text-emerald-400">Código: {p.codigoAcesso}</p>
+                <span className={`text-xs ${p.ativo ? 'text-emerald-400' : 'text-red-400'}`}>{p.ativo ? 'Ativo' : 'Inativo'}</span>
               </div>
             ))}
           </div>
@@ -587,7 +737,7 @@ export default function GestaoPage() {
         {/* Polling de ações pendentes */}
         <PollingActions onUpdate={setPendingActions} active={role === 'admin' && tab === 'redemptions'} api={API} />
         <PollingActions onUpdate={setPendingActions} active={role === 'partner' && tab === 'redeem'} api={API} />
-        <PollingRedemptions onUpdate={setPendingRedemptions} active={role === 'partner' && tab === 'redeem'} api={API} />
+        <PollingRedemptions onUpdate={setPendingRedemptions} active={role === 'partner' && tab === 'redeem'} api={API} segment={partnerData?.segmento || ''} />
 
         {/* ADMIN: Relatórios */}
         {role === 'admin' && tab === 'reports' && (
@@ -612,6 +762,9 @@ export default function GestaoPage() {
         {role === 'partner' && tab === 'redeem' && (
           <div className="space-y-6">
             <h1 className="text-2xl font-black">🎁 Validações & Resgates</h1>
+            {partnerData && (
+              <p className="text-sm text-slate-400">{partnerData.nomeFantasia} &middot; {partnerData.segmento}</p>
+            )}
 
             {/* Validar código de resgate */}
             <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
@@ -802,12 +955,13 @@ function PollingActions({ onUpdate, active, api }: { onUpdate: (d: any[]) => voi
   return null;
 }
 
-function PollingRedemptions({ onUpdate, active, api }: { onUpdate: (d: any[]) => void; active: boolean; api: string }) {
+function PollingRedemptions({ onUpdate, active, api, segment }: { onUpdate: (d: any[]) => void; active: boolean; api: string; segment?: string }) {
   useEffect(() => {
     if (!active) return;
     const fetchPending = async () => {
       try {
-        const res = await fetch(`${api}/benefits/pending`);
+        const url = segment ? `${api}/benefits/pending?segment=${segment}` : `${api}/benefits/pending`;
+        const res = await fetch(url);
         const json = await res.json();
         if (json?.success) onUpdate(json.data || []);
       } catch {}
@@ -815,6 +969,6 @@ function PollingRedemptions({ onUpdate, active, api }: { onUpdate: (d: any[]) =>
     fetchPending();
     const interval = setInterval(fetchPending, 5000);
     return () => clearInterval(interval);
-  }, [active, api]);
+  }, [active, api, segment]);
   return null;
 }

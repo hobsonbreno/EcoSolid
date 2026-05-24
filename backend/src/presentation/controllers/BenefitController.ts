@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Query } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 
@@ -8,6 +8,15 @@ export class BenefitController {
     @InjectModel('BenefitRedemption') private readonly redemptionModel: Model<any>,
     @InjectModel('Citizen') private readonly citizenModel: Model<any>,
   ) {}
+
+  // Mapeamento de segmentos por parceiro
+  private readonly segmentMap: Record<string, string> = {
+    'Zona Azul Fortaleza': 'Estacionamento',
+    'Clinica Saude+': 'Hospital',
+    'CAGECE': 'Energia',
+    'Enel CE': 'Energia',
+    'Restaurante Verde': 'Restaurante',
+  };
 
   @Post('redeem')
   async redeem(@Body() body: {
@@ -20,9 +29,12 @@ export class BenefitController {
       let code = '';
       for (let i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
 
+      const segment = this.segmentMap[body.partnerName] || 'Outro';
+
       const redemption = await this.redemptionModel.create({
         citizenId: body.citizenId,
         partnerName: body.partnerName,
+        partnerSegmento: segment,
         partnerIcon: body.partnerIcon || '🎁',
         solidCost: body.solidCost,
         maintenanceFee,
@@ -141,10 +153,12 @@ export class BenefitController {
   }
 
   @Get('pending')
-  async getPending() {
+  async getPending(@Query('segment') segment?: string) {
     try {
+      const filter: any = { status: 'PENDENTE' };
+      if (segment) filter.partnerSegmento = segment;
       const redemptions = await this.redemptionModel
-        .find({ status: 'PENDENTE' })
+        .find(filter)
         .sort({ createdAt: -1 })
         .lean()
         .exec();

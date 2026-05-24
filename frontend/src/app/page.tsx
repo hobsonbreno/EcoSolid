@@ -56,6 +56,10 @@ export default function EcoSolidApp() {
   const [quotes, setQuotes] = useState<{ eth: number | null; btc: number | null }>({ eth: null, btc: null });
   const [metaMaskBal, setMetaMaskBal] = useState<string | null>(null);
   const [evmBal, setEvmBal] = useState<string | null>(null);
+  const [redeemStatus, setRedeemStatus] = useState<string | null>(null);
+  const [redeemCreatedAt, setRedeemCreatedAt] = useState<string | null>(null);
+  const [redeemTxHash, setRedeemTxHash] = useState<string | null>(null);
+  const [redeemCountdown, setRedeemCountdown] = useState(0);
   const [whatsappApiKeyInput, setWhatsappApiKeyInput] = useState('');
   const [citizen, setCitizen] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -913,6 +917,8 @@ export default function EcoSolidApp() {
           benefitDescription: description,
           solidCost: cost,
         });
+        setRedeemCreatedAt(json.data.createdAt || new Date().toISOString());
+        setRedeemStatus('PENDENTE');
       } else alert(json.error);
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -932,30 +938,53 @@ export default function EcoSolidApp() {
     return () => clearInterval(interval);
   }, []);
 
-  // Polling do resgate
+  // Countdown do resgate (30 min)
   useEffect(() => {
-    if (!redeemModal) return;
-    const interval = setInterval(async () => {
+    if (!redeemCreatedAt || redeemStatus !== 'PENDENTE') return;
+    const deadline = new Date(redeemCreatedAt).getTime() + 30 * 60 * 1000;
+    const update = () => {
+      const remaining = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+      setRedeemCountdown(remaining);
+      if (remaining <= 0) setRedeemStatus('EXPIRADO');
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [redeemCreatedAt, redeemStatus]);
+
+  // Polling do resgate — status em tempo real
+  useEffect(() => {
+    if (!redeemModal || redeemStatus === 'CONFIRMADO' || redeemStatus === 'EXPIRADO') return;
+    const checkStatus = async () => {
       try {
-        const checkRes = await apiFetch('/benefits/pending');
-        const checkJson = await checkRes.json();
-        if (checkJson?.success) {
-          const ours = checkJson.data?.find((r: any) => r.code === redeemModal.code);
+        const res = await apiFetch('/benefits/pending');
+        const json = await res.json();
+        if (json?.success) {
+          const ours = json.data?.find((r: any) => r.code === redeemModal.code);
           if (!ours) {
-            setRedeemModal(null);
-            setQrDataUrl(null);
+            // Não está mais em pending — foi confirmado. Buscar txHash.
+            setRedeemStatus('CONFIRMADO');
+            setRedeemCountdown(0);
             refreshData();
-            showToast('✅ Resgate confirmado!', 'success');
+            // Buscar txHash via listagem completa (admin/redemptions/all)
+            try {
+              const allRes = await apiFetch('/admin/redemptions/all', { headers: { 'x-admin-key': 'ecosolid-admin-2026' } });
+              const allJson = await allRes.json();
+              if (allJson?.success) {
+                const confirmed = allJson.data?.find((r: any) => r.code === redeemModal.code);
+                if (confirmed?.txHash) setRedeemTxHash(confirmed.txHash);
+              }
+            } catch {}
           } else if (new Date(ours.createdAt).getTime() + 30 * 60 * 1000 < Date.now()) {
-            setRedeemModal(null);
-            setQrDataUrl(null);
-            showToast('❌ Resgate expirado (30 min)', 'error');
+            setRedeemStatus('EXPIRADO');
           }
         }
       } catch {}
-    }, 5000);
+    };
+    checkStatus();
+    const interval = setInterval(checkStatus, 5000);
     return () => clearInterval(interval);
-  }, [redeemModal?.code]);
+  }, [redeemModal?.code, redeemStatus]);
 
   const confirmAction = async () => {
     if (!citizen || !actionModal) return;
@@ -2017,36 +2046,70 @@ Verificado por EcoSolid — blockchain pública`;
       {/* Modal QR Code de Resgate */}
       {redeemModal && (
         <div className="fixed inset-0 bg-black/95 z-50 flex flex-col p-4">
-          <div className="m-auto bg-slate-900 border border-amber-500/30 p-6 rounded-3xl w-full max-w-sm space-y-6 text-center">
-            <h3 className="text-xl font-bold text-amber-400">🎁 Resgate Confirmado</h3>
+          <div className="m-auto bg-slate-900 border border-amber-500/30 p-6 rounded-3xl w-full max-w-sm space-y-4 text-center">
+            <h3 className="text-xl font-bold text-amber-400">
+              {redeemStatus === 'CONFIRMADO' ? '✅ Resgate Aprovado!' :
+               redeemStatus === 'EXPIRADO' ? '❌ Resgate Expirado' :
+               '🎁 Resgate'}
+            </h3>
             <p className="text-sm text-slate-300">{redeemModal.benefitDescription} — <strong>{redeemModal.solidCost} SOLID</strong></p>
             {qrDataUrl && <img src={qrDataUrl} alt="QR Code" className="mx-auto rounded-xl border border-white/10" />}
             <div className="bg-white/5 p-3 rounded-xl">
               <p className="text-xs text-slate-400 mb-1">Código do Resgate</p>
               <p className="text-2xl font-black font-mono tracking-widest text-amber-400">{redeemModal.code}</p>
             </div>
-            <div className="space-y-2">
-              <button
-                onClick={() => {
-                  if (qrDataUrl) {
-                    const a = document.createElement('a');
-                    a.href = qrDataUrl;
-                    a.download = `resgate-${redeemModal.code}.png`;
-                    a.click();
-                  }
-                }}
-                className="w-full p-3 rounded-xl bg-slate-700 text-white font-bold text-sm hover:bg-slate-600 flex items-center justify-center gap-2"
-              >
-                💾 Salvar QR Code
-              </button>
-              <button
-                onClick={() => { setRedeemModal(null); setQrDataUrl(null); }}
-                className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white hover:bg-amber-400"
-              >
-                Fechar
-              </button>
+            {/* Status em tempo real */}
+            <div className={`p-3 rounded-xl ${
+              redeemStatus === 'CONFIRMADO' ? 'bg-emerald-500/20 border border-emerald-500/30' :
+              redeemStatus === 'EXPIRADO' ? 'bg-red-500/20 border border-red-500/30' :
+              'bg-yellow-500/10 border border-yellow-500/20'
+            }`}>
+              {redeemStatus === 'PENDENTE' && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-sm font-bold text-yellow-400">🟡 Aguardando aprovação do parceiro...</span>
+                  </div>
+                  {redeemCreatedAt && redeemCountdown > 0 && (
+                    <p className="text-xs text-slate-400">{Math.floor(redeemCountdown / 60)}:{(redeemCountdown % 60).toString().padStart(2, '0')} restantes</p>
+                  )}
+                  {redeemCreatedAt && redeemCountdown <= 0 && (
+                    <p className="text-xs text-red-400">Tempo esgotado</p>
+                  )}
+                </div>
+              )}
+              {redeemStatus === 'CONFIRMADO' && (
+                <div className="space-y-2">
+                  <span className="text-sm font-bold text-emerald-400">✅ Aprovado! Pode usar o benefício.</span>
+                  {redeemTxHash && (
+                    <a href={`https://sepolia.etherscan.io/tx/${redeemTxHash}`} target="_blank" rel="noopener"
+                      className="block text-xs text-cyan-400 hover:underline font-mono truncate">{redeemTxHash}</a>
+                  )}
+                </div>
+              )}
+              {redeemStatus === 'EXPIRADO' && (
+                <span className="text-sm font-bold text-red-400">❌ Este resgate expirou após 30 minutos.</span>
+              )}
             </div>
-            <p className="text-xs text-slate-600">Apresente este código no local do parceiro</p>
+            <div className="space-y-2">
+              {redeemStatus !== 'EXPIRADO' && (
+                <button
+                  onClick={() => {
+                    if (qrDataUrl) {
+                      const a = document.createElement('a');
+                      a.href = qrDataUrl;
+                      a.download = `resgate-${redeemModal.code}.png`;
+                      a.click();
+                    }
+                  }}
+                  className="w-full p-3 rounded-xl bg-slate-700 text-white font-bold text-sm hover:bg-slate-600"
+                >💾 Salvar QR Code</button>
+              )}
+              <button
+                onClick={() => { setRedeemModal(null); setQrDataUrl(null); setRedeemStatus(null); setRedeemCreatedAt(null); }}
+                className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white hover:bg-amber-400"
+              >Fechar</button>
+            </div>
           </div>
         </div>
       )}

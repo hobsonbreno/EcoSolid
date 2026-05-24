@@ -5,6 +5,7 @@ import { ImpactActionSchema } from '../../infrastructure/database/mongo/schemas/
 import { BloodAlertSchema } from '../../infrastructure/database/mongo/schemas/BloodAlertSchema';
 import { BenefitRedemptionSchema } from '../../infrastructure/database/mongo/schemas/BenefitRedemptionSchema';
 import { PartnerInterestSchema } from '../../infrastructure/database/mongo/schemas/PartnerInterestSchema';
+import { PartnerSchema } from '../../infrastructure/database/mongo/schemas/PartnerSchema';
 import { AppointmentSchema } from '../../infrastructure/database/mongo/schemas/AppointmentSchema';
 import { MongoCitizenRepository } from '../../infrastructure/database/mongo/repositories/MongoCitizenRepository';
 import { MongoImpactActionRepository } from '../../infrastructure/database/mongo/repositories/MongoImpactActionRepository';
@@ -35,6 +36,7 @@ import { IBlockchainService } from '../../application/ports/IBlockchainService';
       { name: 'BenefitRedemption', schema: BenefitRedemptionSchema },
       { name: 'PartnerInterest', schema: PartnerInterestSchema },
       { name: 'Appointment', schema: AppointmentSchema },
+      { name: 'Partner', schema: PartnerSchema },
     ]),
   ],
   controllers: [

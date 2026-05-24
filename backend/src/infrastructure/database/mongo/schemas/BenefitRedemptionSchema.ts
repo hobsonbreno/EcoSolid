@@ -3,6 +3,7 @@ import { Schema } from 'mongoose';
 export const BenefitRedemptionSchema = new Schema({
   citizenId: { type: String, required: true },
   partnerName: { type: String, required: true },
+  partnerSegmento: { type: String },
   partnerIcon: { type: String },
   solidCost: { type: Number, required: true },
   maintenanceFee: { type: Number, default: 0 },
