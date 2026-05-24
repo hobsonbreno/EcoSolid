@@ -65,6 +65,29 @@ export class AdminController {
     return { success: true, data: redemptions };
   }
 
+  @Get('citizens/search')
+  async searchCitizens(@Headers('x-admin-key') adminKey?: string, @Headers('q') query?: string) {
+    this.checkAuth(adminKey);
+    const q = query || '';
+    const filter = q ? {
+      $or: [
+        { name: { $regex: q, $options: 'i' } },
+        { cpf: { $regex: q, $options: 'i' } },
+        { bloodType: { $regex: q, $options: 'i' } },
+        { email: { $regex: q, $options: 'i' } },
+      ],
+    } : {};
+    const citizens = await this.citizenModel.find(filter).sort({ createdAt: -1 }).limit(50).lean().exec();
+    return { success: true, data: citizens };
+  }
+
+  @Get('redemptions/all')
+  async allRedemptions(@Headers('x-admin-key') adminKey?: string) {
+    this.checkAuth(adminKey);
+    const redemptions = await this.redemptionModel.find().sort({ createdAt: -1 }).limit(100).lean().exec();
+    return { success: true, data: redemptions };
+  }
+
   @Get('blood-type-stats')
   async bloodTypeStats(@Headers('x-admin-key') adminKey?: string) {
     this.checkAuth(adminKey);
