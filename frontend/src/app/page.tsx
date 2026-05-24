@@ -78,14 +78,48 @@ export default function EcoSolidApp() {
   // Verifica se há biometria salva no dispositivo para exibir botão
   const hasStoredBiometric = typeof window !== 'undefined' && !!localStorage.getItem('ecosolid_credentialId');
 
-  // Google OAuth
-  const [googleReady, setGoogleReady] = useState(false);
+  // Google OAuth — completamente independente do MetaMask
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
-  const googleBtnRef = useRef<HTMLDivElement>(null);
+  const [googleReady, setGoogleReady] = useState(false);
 
-  // Carrega Google Identity Services (apenas na tela de LOGIN)
+  // Processa callback do Google OAuth redirect (token no hash da URL)
   useEffect(() => {
-    if (view !== 'LOGIN' || !googleClientId || typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || !googleClientId) return;
+    const hash = window.location.hash;
+    if (hash && hash.includes('access_token')) {
+      const params = new URLSearchParams(hash.substring(1));
+      const token = params.get('access_token');
+      if (token) {
+        fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then(r => r.json())
+          .then(data => {
+            const name = data.name || '';
+            const email = data.email || '';
+            setFormData(prev => ({ ...prev, name, email }));
+            return apiFetch(`/citizens/by-email/${encodeURIComponent(email)}`).then(r => r.json());
+          })
+          .then(json => {
+            if (json?.success && json?.data) {
+              setCitizen(json.data);
+              loadHistory(json.data.id);
+              setView('DASHBOARD');
+            } else {
+              setView('REGISTER');
+            }
+          })
+          .catch(() => {
+            setView('REGISTER');
+          });
+      }
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, [googleClientId]);
+
+  // Carrega Google Identity Services para popup nativo
+  useEffect(() => {
+    if (!googleClientId || typeof window === 'undefined') return;
     if (document.getElementById('gsi-script')) return;
     const script = document.createElement('script');
     script.id = 'gsi-script';
@@ -93,49 +127,80 @@ export default function EcoSolidApp() {
     script.async = true;
     script.onload = () => setGoogleReady(true);
     document.body.appendChild(script);
-  }, [view, googleClientId]);
+  }, [googleClientId]);
 
-  // Inicializa o Google One Tap / Sign-In quando o script carrega
+  // Inicializa Google GIS para One Tap / popup rápido
   useEffect(() => {
-    if (!googleReady || !googleClientId || !googleBtnRef.current) return;
+    if (!googleReady || !googleClientId) return;
     const w = window as any;
-    w.google?.accounts?.id?.initialize({
-      client_id: googleClientId,
-      callback: (resp: any) => {
-        try {
-          const payload = JSON.parse(atob(resp.credential.split('.')[1]));
-          const name = payload.name || '';
-          const email = payload.email || '';
-          setFormData(prev => ({ ...prev, name, email }));
-          // Tenta buscar cidadão por email
-          apiFetch(`/citizens/by-email/${encodeURIComponent(email)}`)
-            .then(r => r.json())
-            .then(json => {
-              if (json.success && json.data) {
-                setCitizen(json.data);
-                loadHistory(json.data.id);
-                setView('DASHBOARD');
-              } else {
-                // Email não cadastrado — vai pra registro pré-preenchido
-                setFormData(prev => ({ ...prev, name, email }));
-                setView('REGISTER');
-              }
-            })
-            .catch(() => setView('REGISTER'));
-        } catch {
-          alert('Erro ao processar login Google. Tente novamente.');
-        }
-      },
-    });
-    w.google?.accounts?.id?.renderButton(googleBtnRef.current, {
-      type: 'standard',
-      theme: 'filled_black',
-      size: 'large',
-      text: 'signin_with',
-      shape: 'rectangular',
-      width: 360,
-    });
+    try {
+      w.google?.accounts?.id?.initialize({
+        client_id: googleClientId,
+        callback: (resp: any) => {
+          try {
+            const payload = JSON.parse(atob(resp.credential.split('.')[1]));
+            const name = payload.name || '';
+            const email = payload.email || '';
+            setFormData(prev => ({ ...prev, name, email }));
+            apiFetch(`/citizens/by-email/${encodeURIComponent(email)}`)
+              .then(r => r.json())
+              .then(json => {
+                if (json?.success && json?.data) {
+                  setCitizen(json.data);
+                  loadHistory(json.data.id);
+                  setView('DASHBOARD');
+                } else {
+                  setFormData(prev => ({ ...prev, name, email }));
+                  setView('REGISTER');
+                }
+              })
+              .catch(() => setView('REGISTER'));
+          } catch {
+            alert('Erro ao processar login Google. Tente novamente.');
+          }
+        },
+      });
+    } catch {}
   }, [googleReady, googleClientId]);
+
+  // Handler do botão customizado "Entrar com Google"
+  const handleGoogleSignIn = () => {
+    if (!googleClientId) {
+      alert('Google Sign-In não configurado. Configure NEXT_PUBLIC_GOOGLE_CLIENT_ID no Vercel.');
+      return;
+    }
+    // Tenta usar Google Identity Services (popup nativo)
+    const w = window as any;
+    if (w.google?.accounts?.id) {
+      try {
+        w.google.accounts.id.prompt((notification: any) => {
+          if (notification?.isNotDisplayed?.() || notification?.isSkippedMoment?.()) {
+            // One Tap não funcionou — fallback para redirect OAuth
+            const redirectUri = window.location.origin + window.location.pathname;
+            const authUrl =
+              'https://accounts.google.com/o/oauth2/v2/auth' +
+              `?client_id=${encodeURIComponent(googleClientId)}` +
+              `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+              '&response_type=token' +
+              '&scope=email%20profile' +
+              '&prompt=select_account';
+            window.location.href = authUrl;
+          }
+        });
+        return;
+      } catch {}
+    }
+    // Fallback: redirect OAuth direto
+    const redirectUri = window.location.origin + window.location.pathname;
+    const authUrl =
+      'https://accounts.google.com/o/oauth2/v2/auth' +
+      `?client_id=${encodeURIComponent(googleClientId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      '&response_type=token' +
+      '&scope=email%20profile' +
+      '&prompt=select_account';
+    window.location.href = authUrl;
+  };
 
   // Fallback de localização por IP (quando GPS falha)
   const fetchIpLocation = async (): Promise<{ lat: number; lng: number; address: string; approximate: true } | null> => {
@@ -694,16 +759,25 @@ export default function EcoSolidApp() {
         <h1 className="text-4xl font-black bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-500">EcoSolid</h1>
         <p className="text-slate-400 text-center mb-8">Plataforma Auditável com Biometria Cívica.</p>
 
+        {/* Google Sign-In — PRIORIDADE no Chrome Android */}
+        <button
+          onClick={handleGoogleSignIn}
+          disabled={loading}
+          className="p-4 rounded-xl bg-white text-slate-900 font-bold w-full max-w-sm hover:bg-slate-200 shadow-xl flex items-center justify-center gap-3"
+        >
+          <svg className="w-6 h-6" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          {loading ? "Conectando..." : "Entrar com Google"}
+        </button>
+
+        <div className="flex items-center gap-3 w-full max-w-sm">
+          <div className="flex-1 h-px bg-slate-800"></div>
+          <span className="text-xs text-slate-600">ou</span>
+          <div className="flex-1 h-px bg-slate-800"></div>
+        </div>
+
         <button onClick={handleConnectMetaMask} disabled={loading} className="p-4 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 font-bold w-full max-w-sm hover:scale-[1.02] shadow-xl flex items-center justify-center gap-3">
           <span className="text-2xl">🦊</span> {loading ? "Conectando..." : "Conectar / Cadastrar com MetaMask"}
         </button>
-
-        {/* Google Sign-In */}
-        {googleClientId ? (
-          <div ref={googleBtnRef} className="w-full max-w-sm flex justify-center" />
-        ) : (
-          <p className="text-xs text-slate-600 text-center">Google Sign-In: configure NEXT_PUBLIC_GOOGLE_CLIENT_ID</p>
-        )}
 
         {hasStoredBiometric && (
           <button onClick={handleBiometricLogin} disabled={loading} className="p-4 rounded-xl bg-slate-800 text-white font-bold w-full max-w-sm hover:bg-slate-700 flex items-center justify-center gap-2 border border-slate-700">
@@ -711,7 +785,8 @@ export default function EcoSolidApp() {
           </button>
         )}
 
-        {isMobileDevice && (
+        {/* MetaMask App — só aparece em mobile NÃO-Chrome (onde o deep link funciona) */}
+        {isMobileDevice && !isChromeAndroid && (
           <button onClick={openInMetaMaskApp} className="p-3 rounded-xl bg-slate-800 text-white font-bold w-full max-w-sm hover:bg-slate-700 flex items-center justify-center gap-2 border border-emerald-600">
             <span className="text-xl">📱</span> Abrir com MetaMask App
           </button>
@@ -721,7 +796,7 @@ export default function EcoSolidApp() {
           <p className="text-xs text-slate-600 text-center max-w-sm">
             {isMobileDevice
               ? isChromeAndroid
-                ? "No Chrome Android, use o botão \"Entrar com Google\" ou abra o app pelo MetaMask App acima. O MetaMask não funciona como extensão no Chrome mobile."
+                ? "Use o botão \"Entrar com Google\" acima para login rápido. Para usar MetaMask, instale o app e acesse pelo navegador integrado dele."
                 : "Toque em \"Abrir com MetaMask App\" para acessar com sua carteira. O app será aberto no navegador integrado do MetaMask."
               : "Conecte sua carteira MetaMask primeiro. Após o login, você poderá cadastrar sua digital ou reconhecimento facial para acesso rápido nas próximas vezes."
             }
