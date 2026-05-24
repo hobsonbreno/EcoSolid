@@ -8,8 +8,8 @@
     "deploy:sepolia": "npx hardhat run scripts/deploy.ts --network sepolia"
   },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
-    "hardhat": "^2.22.0"
+    "@nomicfoundation/hardhat-toolbox": "^7.0.0",
+    "hardhat": "^3.5.1"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.0.0"
