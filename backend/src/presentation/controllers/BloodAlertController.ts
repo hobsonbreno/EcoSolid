@@ -6,6 +6,7 @@ import { Model } from 'mongoose';
 export class BloodAlertController {
   constructor(
     @InjectModel('BloodAlert') private readonly alertModel: Model<any>,
+    @InjectModel('Citizen') private readonly citizenModel: Model<any>,
   ) {}
 
   @Post('blood')
@@ -17,7 +18,34 @@ export class BloodAlertController {
         hospital: body.hospital,
         location: body.location || 'Fortaleza - CE',
       });
-      return { success: true, data: alert, message: `Alerta enviado para doadores ${body.bloodType}` };
+
+      // Dispara push notifications para todos com pushToken e tipo sanguíneo correspondente
+      try {
+        const citizens = await this.citizenModel.find({
+          bloodType: body.bloodType.toUpperCase(),
+          pushToken: { $exists: true, $ne: null },
+        }).lean().exec();
+
+        if (citizens.length > 0) {
+          const webpush = require('web-push');
+          webpush.setVapidDetails(
+            'mailto:ecosolid@ecosolid.vercel.app',
+            process.env.VAPID_PUBLIC_KEY || '',
+            process.env.VAPID_PRIVATE_KEY || '',
+          );
+          const payload = JSON.stringify({
+            title: `🚨 Urgente: Seu sangue ${body.bloodType.toUpperCase()} é necessário!`,
+            body: `${body.hospital}: ${body.message}. Ganhe 1.000 SOLID doando agora!`,
+            icon: '/icons/icon-192x192.png',
+            data: { url: '/?action=blood_donation' },
+          });
+          for (const c of citizens) {
+            try { await webpush.sendNotification(c.pushToken, payload); } catch {}
+          }
+        }
+      } catch (pushErr) { console.warn('Push não enviado:', pushErr); }
+
+      return { success: true, data: alert, message: `Alerta criado e notificações enviadas para ${body.bloodType}` };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

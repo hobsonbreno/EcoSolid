@@ -74,6 +74,16 @@ export class CitizenController {
     }
   }
 
+  @Patch(':id/push-token')
+  async savePushToken(@Param('id') id: string, @Body() body: { pushToken: any }) {
+    try {
+      await this.citizenModel.findByIdAndUpdate(id, { pushToken: body.pushToken });
+      return { success: true, message: 'Push token salvo' };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
   @Patch(':id/wallet')
   async addWallet(@Param('id') id: string, @Body() body: { walletAddress: string; type?: string }) {
     try {

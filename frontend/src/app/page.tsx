@@ -2,12 +2,22 @@
 import React, { useState, useRef, useEffect } from 'react';
 import QRCodeLib from 'qrcode';
 import { jsPDF } from 'jspdf';
+import confetti from 'canvas-confetti';
 
 declare global {
   interface Window { ethereum?: any; PublicKeyCredential?: any; }
 }
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3005';
+
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
 
 const apiFetch = (path: string, options?: RequestInit) =>
   fetch(`${BACKEND_URL}${path}`, {
@@ -89,8 +99,76 @@ export default function EcoSolidApp() {
     return { level: 1, name: 'Cidadão Iniciante', badge: '🌱', min: 0, next: 100 };
   };
 
+  // Toast system (substitui alert())
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  // Push notification subscription
+  useEffect(() => {
+    if (!citizen || view !== 'DASHBOARD') return;
+    const subscribe = async () => {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') return;
+        const registration = await navigator.serviceWorker.ready;
+        let subscription = await registration.pushManager.getSubscription();
+        if (!subscription) {
+          const vapidRes = await apiFetch('/push/vapid-public-key');
+          const { data } = await vapidRes.json();
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(data.publicKey),
+          });
+        }
+        await apiFetch(`/citizens/${citizen.id}/push-token`, {
+          method: 'PATCH',
+          body: JSON.stringify({ pushToken: subscription }),
+        });
+      } catch {}
+    };
+    subscribe();
+  }, [citizen, view]);
+
+  // Tempo relativo para alertas
+  const getRelativeTime = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    if (h > 0) return `há ${h}h ${m}min`;
+    return `há ${m} minutos`;
+  };
+
+  // Recarrega dados do cidadão
+  const refreshData = async () => {
+    if (!citizen) return;
+    setSkeletonLoading(true);
+    try {
+      const res = await apiFetch(`/citizens/${citizen.id}`);
+      const json = await res.json();
+      if (json.success) setCitizen(json.data);
+    } catch {}
+    setSkeletonLoading(false);
+  };
+
   // Onboarding — mostra uma vez após cadastro
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [skeletonLoading, setSkeletonLoading] = useState(false);
+  const prevLevelRef = useRef(0);
+
+  // Confetti ao subir de nível
+  useEffect(() => {
+    if (!citizen) return;
+    const currentLevel = getLevel(citizen.totalPoints || 0).level;
+    if (prevLevelRef.current && currentLevel > prevLevelRef.current) {
+      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+      showToast(`🎉 Parabéns! Você subiu para ${getLevel(citizen.totalPoints || 0).badge} ${getLevel(citizen.totalPoints || 0).name}!`, 'success');
+    }
+    prevLevelRef.current = currentLevel;
+  }, [citizen?.totalPoints]);
   useEffect(() => {
     if (view === 'DASHBOARD' && !localStorage.getItem('ecosolid_onboarding_done')) {
       setShowOnboarding(true);
@@ -1436,6 +1514,7 @@ export default function EcoSolidApp() {
             <div key={i} className="p-4 rounded-xl bg-red-600/20 border border-red-500 animate-pulse">
               <p className="text-sm font-bold text-red-400">🚨 URGENTE: Seu tipo sanguíneo <span className="font-black">{alert.bloodType}</span> é necessário no <strong>{alert.hospital}</strong>.</p>
               <p className="text-xs text-red-300 mt-1">{alert.message}</p>
+              <p className="text-xs text-red-500/70 mt-1">⏱️ Alerta criado {getRelativeTime(alert.createdAt)}</p>
               <button
                 onClick={() => {
                   openActionModal('BLOOD_DONATION', 1000, '🩸', 'Doação de Sangue Emergencial');
@@ -1477,12 +1556,17 @@ export default function EcoSolidApp() {
                 if (navigator.share) {
                   navigator.share({ title: 'EcoSolid', text });
                 } else {
-                  navigator.clipboard.writeText(text).then(() => alert('Mensagem copiada! Compartilhe onde quiser.'));
+                  navigator.clipboard.writeText(text).then(() => showToast('Mensagem copiada!', 'success'));
                 }
               }}
               className="w-full p-3 rounded-xl bg-white/5 border border-white/10 hover:border-emerald-500/50 text-slate-400 hover:text-emerald-400 font-bold text-xs flex items-center justify-center gap-2 transition-colors"
             >
               📤 Compartilhar minha conquista
+            </button>
+
+            <button onClick={refreshData}
+              className="w-full p-3 rounded-xl bg-white/5 border border-white/10 text-slate-500 hover:text-slate-300 font-bold text-xs flex items-center justify-center gap-2">
+              🔄 Atualizar dados
             </button>
           </section>
 
@@ -1532,7 +1616,7 @@ export default function EcoSolidApp() {
 🔗 Blockchain: ${tx.tx}
 ━━━━━━━━━━━━━━━━━━━━━
 Verificado por EcoSolid — blockchain pública`;
-                          navigator.clipboard.writeText(certText).then(() => alert('Certificado copiado!'));
+                          navigator.clipboard.writeText(certText).then(() => showToast('Certificado copiado!', 'success'));
                         }}
                         className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-white font-bold"
                       >
@@ -1708,7 +1792,7 @@ ${certificateModal.action.bloodType ? '🩸 Tipo Sanguíneo: ' + certificateModa
 🔗 Blockchain: ${certificateModal.action.tx}
 ━━━━━━━━━━━━━━━━━━━━━
 Verificado por EcoSolid — blockchain pública`;
-                navigator.clipboard.writeText(certText).then(() => alert('Certificado copiado para a área de transferência!'));
+                navigator.clipboard.writeText(certText).then(() => showToast('Certificado copiado!', 'success'));
               }}
               className="w-full p-4 rounded-xl bg-cyan-500 font-bold text-white hover:bg-cyan-400 flex items-center justify-center gap-2"
             >
@@ -1756,6 +1840,15 @@ Verificado por EcoSolid — blockchain pública`;
       )}
 
       {/* Onboarding pós-cadastro */}
+      {/* Toast */}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-[70] px-6 py-3 rounded-xl shadow-2xl animate-in slide-in-from-right duration-300 text-sm font-bold ${
+          toast.type === 'success' ? 'bg-emerald-500 text-white' : toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-slate-800 text-white border border-slate-700'
+        }`}>
+          {toast.msg}
+        </div>
+      )}
+
       {showOnboarding && (
         <div className="fixed inset-0 bg-black z-[60] flex flex-col justify-center p-6">
           <div className="max-w-sm mx-auto text-center space-y-6 animate-in fade-in zoom-in duration-500">

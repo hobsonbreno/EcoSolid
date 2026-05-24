@@ -16,6 +16,7 @@ export const CitizenSchema = new Schema({
   level: { type: String, enum: Object.values(CitizenLevel), default: CitizenLevel.SEED },
   createdAt: { type: Date, default: Date.now },
   credentialId: { type: String, unique: true, sparse: true },
+  pushToken: { type: Object },
   credentialPublicKey: { type: String },
 });
 

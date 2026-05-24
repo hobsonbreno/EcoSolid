@@ -4,6 +4,7 @@ import { CitizenSchema } from '../../infrastructure/database/mongo/schemas/Citiz
 import { ImpactActionSchema } from '../../infrastructure/database/mongo/schemas/ImpactActionSchema';
 import { BloodAlertSchema } from '../../infrastructure/database/mongo/schemas/BloodAlertSchema';
 import { BenefitRedemptionSchema } from '../../infrastructure/database/mongo/schemas/BenefitRedemptionSchema';
+import { PartnerInterestSchema } from '../../infrastructure/database/mongo/schemas/PartnerInterestSchema';
 import { MongoCitizenRepository } from '../../infrastructure/database/mongo/repositories/MongoCitizenRepository';
 import { MongoImpactActionRepository } from '../../infrastructure/database/mongo/repositories/MongoImpactActionRepository';
 import { EthersBlockchainService } from '../../infrastructure/blockchain/EthersBlockchainService';
@@ -16,6 +17,9 @@ import { BloodAlertController } from '../controllers/BloodAlertController';
 import { BenefitController } from '../controllers/BenefitController';
 import { AdminController } from '../controllers/AdminController';
 import { PublicController } from '../controllers/PublicController';
+import { PushController } from '../controllers/PushController';
+import { PartnerController } from '../controllers/PartnerController';
+import { PixController } from '../controllers/PixController';
 import { ICitizenRepository } from '../../domain/repositories/ICitizenRepository';
 import { IImpactActionRepository } from '../../domain/repositories/IImpactActionRepository';
 import { IBlockchainService } from '../../application/ports/IBlockchainService';
@@ -27,11 +31,11 @@ import { IBlockchainService } from '../../application/ports/IBlockchainService';
       { name: 'ImpactAction', schema: ImpactActionSchema },
       { name: 'BloodAlert', schema: BloodAlertSchema },
       { name: 'BenefitRedemption', schema: BenefitRedemptionSchema },
+      { name: 'PartnerInterest', schema: PartnerInterestSchema },
     ]),
   ],
-  controllers: [CitizenController, ImpactActionController, BloodAlertController, BenefitController, AdminController, PublicController],
+  controllers: [CitizenController, ImpactActionController, BloodAlertController, BenefitController, AdminController, PublicController, PushController, PartnerController, PixController],
   providers: [
-    // 1. Dizendo pro NestJS quem é a Infraestrutura real que assume os Contratos
     {
       provide: 'ICitizenRepository',
       useClass: MongoCitizenRepository,
@@ -44,8 +48,6 @@ import { IBlockchainService } from '../../application/ports/IBlockchainService';
       provide: 'IBlockchainService',
       useClass: EthersBlockchainService,
     },
-    
-    // 2. Injetando as dependências de Infraestrutura dentro da Camada de Aplicação
     {
       provide: RegisterCitizenUseCase,
       useFactory: (citizenRepo: ICitizenRepository) => {
