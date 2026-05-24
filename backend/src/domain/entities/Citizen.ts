@@ -3,7 +3,7 @@ export class Citizen {
   constructor(
     public readonly id: string,
     public name: string,
-    public walletAddress: string,
+    public walletAddress?: string,
     public cpf?: string,
     public email?: string,
     public phone?: string,

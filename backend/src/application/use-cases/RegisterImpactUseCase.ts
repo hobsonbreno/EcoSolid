@@ -13,7 +13,7 @@ export class RegisterImpactUseCase {
     citizen.addPoints(dto.pointsEarned);
     await this.impactRepository.save(action);
     await this.citizenRepository.save(citizen); 
-    const txHash = await this.blockchainService.mintSolidToken(citizen.walletAddress, dto.pointsEarned);
+    const txHash = await this.blockchainService.mintSolidToken(citizen.walletAddress || '0x0000000000000000000000000000000000000000', dto.pointsEarned);
     return { action, txHash };
   }
 }

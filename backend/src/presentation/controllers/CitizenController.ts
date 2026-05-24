@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Inject } from '@nestjs/common';
+import { Controller, Post, Body, Get, Patch, Param, Inject } from '@nestjs/common';
 import { RegisterCitizenUseCase } from '../../application/use-cases/RegisterCitizenUseCase';
 import { GetCitizenUseCase } from '../../application/use-cases/GetCitizenUseCase';
 import { RegisterCitizenDto } from '../../application/dtos/RegisterCitizenDto';
@@ -60,11 +60,29 @@ export class CitizenController {
     }
   }
 
+  @Patch(':id/wallet')
+  async addWallet(@Param('id') id: string, @Body() body: { walletAddress: string; type?: string }) {
+    try {
+      const citizen = await this.citizenRepo.findById(id);
+      if (!citizen) return { success: false, error: 'Cidadão não encontrado' };
+
+      const dupe = await this.citizenRepo.findByWallet(body.walletAddress);
+      if (dupe && dupe.id !== id) return { success: false, error: 'Esta carteira já está vinculada a outra conta.' };
+
+      citizen.walletAddress = body.walletAddress;
+      await this.citizenRepo.save(citizen);
+
+      return { success: true, data: citizen, message: `Carteira ${body.type || ''} vinculada com sucesso` };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
   @Post('biometric/login')
   async loginBiometric(@Body() body: { credentialId: string }) {
     try {
       const citizen = await this.citizenRepo.findByCredentialId(body.credentialId);
-      if (!citizen) return { success: false, error: 'Biometria não encontrada. Faça login com MetaMask primeiro.' };
+      if (!citizen) return { success: false, error: 'Biometria não encontrada. Faça login primeiro.' };
 
       return { success: true, data: citizen };
     } catch (error: any) {

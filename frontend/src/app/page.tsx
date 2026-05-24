@@ -33,7 +33,9 @@ const base64ToBuffer = (base64: string): ArrayBuffer => {
 
 export default function EcoSolidApp() {
   const [view, setView] = useState<'LOGIN' | 'REGISTER' | 'DASHBOARD'>('LOGIN');
-  const [dashboardTab, setDashboardTab] = useState<'OVERVIEW' | 'PROFILE'>('OVERVIEW');
+  const [dashboardTab, setDashboardTab] = useState<'OVERVIEW' | 'PROFILE' | 'CONTAS'>('OVERVIEW');
+  const [contasWalletInput, setContasWalletInput] = useState('');
+  const [contasWalletType, setContasWalletType] = useState<'metamask' | 'binance' | 'manual'>('metamask');
   const [citizen, setCitizen] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [txHistory, setTxHistory] = useState<any[]>([]);
@@ -759,7 +761,7 @@ export default function EcoSolidApp() {
         <h1 className="text-4xl font-black bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-cyan-500">EcoSolid</h1>
         <p className="text-slate-400 text-center mb-8">Plataforma Auditável com Biometria Cívica.</p>
 
-        {/* Google Sign-In — PRIORIDADE no Chrome Android */}
+        {/* Google Sign-In — login principal */}
         <button
           onClick={handleGoogleSignIn}
           disabled={loading}
@@ -769,39 +771,15 @@ export default function EcoSolidApp() {
           {loading ? "Conectando..." : "Entrar com Google"}
         </button>
 
-        <div className="flex items-center gap-3 w-full max-w-sm">
-          <div className="flex-1 h-px bg-slate-800"></div>
-          <span className="text-xs text-slate-600">ou</span>
-          <div className="flex-1 h-px bg-slate-800"></div>
-        </div>
-
-        <button onClick={handleConnectMetaMask} disabled={loading} className="p-4 rounded-xl bg-gradient-to-r from-orange-500 to-amber-600 font-bold w-full max-w-sm hover:scale-[1.02] shadow-xl flex items-center justify-center gap-3">
-          <span className="text-2xl">🦊</span> {loading ? "Conectando..." : "Conectar / Cadastrar com MetaMask"}
-        </button>
-
         {hasStoredBiometric && (
           <button onClick={handleBiometricLogin} disabled={loading} className="p-4 rounded-xl bg-slate-800 text-white font-bold w-full max-w-sm hover:bg-slate-700 flex items-center justify-center gap-2 border border-slate-700">
             <span className="text-2xl text-emerald-400">👆</span> {loading ? "Verificando..." : "Entrar com Digital / Facial"}
           </button>
         )}
 
-        {/* MetaMask App — só aparece em mobile NÃO-Chrome (onde o deep link funciona) */}
-        {isMobileDevice && !isChromeAndroid && (
-          <button onClick={openInMetaMaskApp} className="p-3 rounded-xl bg-slate-800 text-white font-bold w-full max-w-sm hover:bg-slate-700 flex items-center justify-center gap-2 border border-emerald-600">
-            <span className="text-xl">📱</span> Abrir com MetaMask App
-          </button>
-        )}
-
-        {!hasStoredBiometric && (
-          <p className="text-xs text-slate-600 text-center max-w-sm">
-            {isMobileDevice
-              ? isChromeAndroid
-                ? "Use o botão \"Entrar com Google\" acima para login rápido. Para usar MetaMask, instale o app e acesse pelo navegador integrado dele."
-                : "Toque em \"Abrir com MetaMask App\" para acessar com sua carteira. O app será aberto no navegador integrado do MetaMask."
-              : "Conecte sua carteira MetaMask primeiro. Após o login, você poderá cadastrar sua digital ou reconhecimento facial para acesso rápido nas próximas vezes."
-            }
-          </p>
-        )}
+        <p className="text-xs text-slate-600 text-center max-w-sm">
+          Faça login com sua conta Google. As carteiras (MetaMask, Binance) podem ser vinculadas depois, dentro do app, na aba Contas.
+        </p>
       </div>
     );
   }
@@ -811,14 +789,12 @@ export default function EcoSolidApp() {
       <div className="min-h-screen bg-slate-950 text-white p-6 pb-20">
         <div className="max-w-md mx-auto">
           <div className="flex items-center gap-2 mb-6">
-            <span className="text-3xl">🦊</span>
+            <span className="text-3xl">🌱</span>
             <div>
-              <h2 className="text-xl font-bold text-emerald-400">Carteira Vinculada!</h2>
-              <p className="text-xs text-slate-400 font-mono truncate w-48">{formData.walletAddress}</p>
+              <h2 className="text-xl font-bold text-emerald-400">Criar Identidade Cívica</h2>
+              <p className="text-xs text-slate-400">Complete seu cadastro para participar</p>
             </div>
           </div>
-          <h2 className="text-2xl font-bold mb-4 text-white">Criar Identidade Cívica</h2>
-          <p className="text-sm text-slate-400 mb-6">Você conectou seu MetaMask, mas ainda não tem cadastro. Preencha os dados abaixo para finalizar.</p>
 
           <form onSubmit={handleRegisterSubmit} className="space-y-4">
             <div className="bg-white/5 p-4 rounded-2xl border border-white/10 mb-4">
@@ -846,7 +822,7 @@ export default function EcoSolidApp() {
               )}
             </div>
 
-            <input required placeholder="Nome Completo" className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={e => setFormData({...formData, name: e.target.value})} />
+            <input required placeholder="Nome Completo" value={formData.name} className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={e => setFormData({...formData, name: e.target.value})} />
             <input required placeholder="CPF" className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={e => setFormData({...formData, cpf: e.target.value})} />
             <div>
               <label className="text-xs text-slate-500 font-bold uppercase block mb-2">Data de Nascimento</label>
@@ -902,11 +878,60 @@ export default function EcoSolidApp() {
               <input placeholder="Complemento" value={formData.complement} className="w-2/3 p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={e => setFormData({...formData, complement: e.target.value})} />
             </div>
 
-            <input required placeholder="E-mail" type="email" className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={e => setFormData({...formData, email: e.target.value})} />
-            <input required placeholder="Telefone" className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={e => setFormData({...formData, phone: e.target.value})} />
+            <input required placeholder="E-mail" type="email" value={formData.email} className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={e => setFormData({...formData, email: e.target.value})} />
+            <input required placeholder="Telefone" value={formData.phone} className="w-full p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500" onChange={e => setFormData({...formData, phone: e.target.value})} />
+
+            {/* Carteira (opcional — pode vincular depois na aba Contas) */}
+            <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">💳</span>
+                <p className="text-sm font-bold text-slate-300">Carteira (opcional)</p>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">Vincule agora ou depois na aba Contas. Necessária para acumular pontos.</p>
+              {formData.walletAddress ? (
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                  <span className="text-emerald-400">✓</span>
+                  <span className="text-xs font-mono text-emerald-300 truncate flex-1">{formData.walletAddress}</span>
+                  <button type="button" onClick={() => setFormData(prev => ({ ...prev, walletAddress: '' }))} className="text-xs text-red-400 hover:text-red-300">✕</button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (typeof window.ethereum !== 'undefined') {
+                        try {
+                          const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                          setFormData(prev => ({ ...prev, walletAddress: accounts[0] }));
+                        } catch (e) { alert('MetaMask não autorizado.'); }
+                      } else {
+                        alert('MetaMask não detectado. Instale a extensão ou use a opção manual.');
+                      }
+                    }}
+                    className="w-full p-3 rounded-xl bg-orange-500/20 border border-orange-500/30 text-orange-400 font-bold text-sm hover:bg-orange-500/30 flex items-center justify-center gap-2"
+                  >
+                    <span>🦊</span> Conectar MetaMask
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const addr = prompt('Cole o endereço da sua carteira (MetaMask, Binance, TrustWallet, etc.):');
+                      if (addr && addr.startsWith('0x') && addr.length === 42) {
+                        setFormData(prev => ({ ...prev, walletAddress: addr }));
+                      } else if (addr) {
+                        alert('Endereço inválido. Deve começar com 0x e ter 42 caracteres.');
+                      }
+                    }}
+                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-slate-400 font-bold text-sm hover:bg-slate-700 flex items-center justify-center gap-1"
+                  >
+                    📋 Inserir Endereço Manual
+                  </button>
+                </div>
+              )}
+            </div>
 
             <button type="submit" disabled={loading} className="w-full p-4 rounded-xl bg-emerald-500 font-bold hover:bg-emerald-400 mt-6 shadow-[0_0_15px_rgba(52,211,113,0.3)] disabled:opacity-50">
-              {loading ? "Registrando e Conectando..." : "Finalizar Cadastro de Identidade"}
+              {loading ? "Salvando..." : "Finalizar Cadastro"}
             </button>
           </form>
         </div>
@@ -1013,9 +1038,176 @@ export default function EcoSolidApp() {
 
       <nav className="flex sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-white/10 p-2 items-center">
         <button onClick={() => setDashboardTab('OVERVIEW')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'OVERVIEW' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Visão Geral</button>
+        <button onClick={() => setDashboardTab('CONTAS')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'CONTAS' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Contas</button>
         <button onClick={() => setDashboardTab('PROFILE')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'PROFILE' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Dados Pessoais</button>
         <button onClick={handleLogout} className="ml-2 px-4 py-3 text-sm font-bold rounded-xl text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors" title="Sair da conta">Sair</button>
       </nav>
+
+      {dashboardTab === 'CONTAS' && (
+        <main className="p-6 max-w-md mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <h2 className="text-2xl font-bold mb-4">💳 Carteiras Vinculadas</h2>
+          <p className="text-sm text-slate-400 mb-6">Conecte carteiras para acumular pontos e transacionar. Você pode vincular MetaMask, Binance ou qualquer carteira EVM.</p>
+
+          {/* Carteira atual */}
+          {citizen?.walletAddress ? (
+            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-emerald-400 text-xl">🦊</span>
+                  <div>
+                    <p className="font-bold text-sm text-emerald-300">Carteira Vinculada</p>
+                    <p className="text-xs font-mono text-emerald-400/80 truncate w-48">{citizen.walletAddress}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!confirm('Remover esta carteira? Você poderá adicionar outra depois.')) return;
+                    if (!citizen) return;
+                    setLoading(true);
+                    try {
+                      await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ walletAddress: '', type: 'remove' }),
+                      });
+                      setCitizen({ ...citizen, walletAddress: '' });
+                    } catch {}
+                    setLoading(false);
+                  }}
+                  className="text-xs text-red-400 hover:text-red-300 px-3 py-1 rounded-lg bg-red-400/10"
+                >
+                  Remover
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+              <p className="text-sm text-amber-300 text-center">⚠️ Nenhuma carteira vinculada. Adicione uma para ganhar pontos.</p>
+            </div>
+          )}
+
+          {/* Adicionar MetaMask */}
+          {!citizen?.walletAddress && (
+            <div className="space-y-3">
+              <button
+                onClick={async () => {
+                  if (typeof window.ethereum !== 'undefined') {
+                    try {
+                      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                      const wallet = accounts[0];
+                      setLoading(true);
+                      const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ walletAddress: wallet, type: 'metamask' }),
+                      });
+                      const json = await res.json();
+                      if (json.success) {
+                        setCitizen(json.data);
+                      } else alert(json.error);
+                      setLoading(false);
+                    } catch { alert('Conexão com MetaMask cancelada.'); }
+                  } else {
+                    alert('MetaMask não detectado. Use a opção manual abaixo.');
+                  }
+                }}
+                disabled={loading}
+                className="w-full p-4 rounded-xl bg-orange-500/20 border border-orange-500/30 text-orange-400 font-bold hover:bg-orange-500/30 flex items-center justify-center gap-2"
+              >
+                <span className="text-xl">🦊</span> Conectar MetaMask
+              </button>
+
+              {/* Inserir endereço manual */}
+              <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-3">
+                <p className="text-xs text-slate-400 font-bold uppercase">Ou insira um endereço manual</p>
+                <input
+                  placeholder="0x..."
+                  value={contasWalletInput}
+                  onChange={e => setContasWalletInput(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 font-mono text-sm"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      const addr = contasWalletInput.trim();
+                      if (!addr.startsWith('0x') || addr.length !== 42) { alert('Endereço inválido. Deve começar com 0x e ter 42 caracteres.'); return; }
+                      setLoading(true);
+                      const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ walletAddress: addr, type: 'manual' }),
+                      });
+                      const json = await res.json();
+                      if (json.success) setCitizen(json.data); else alert(json.error);
+                      setContasWalletInput('');
+                      setLoading(false);
+                    }}
+                    disabled={loading || !contasWalletInput.trim()}
+                    className="flex-1 p-3 rounded-xl bg-emerald-600 font-bold text-sm hover:bg-emerald-500 disabled:opacity-50"
+                  >
+                    💰 Vincular Binance
+                  </button>
+                  <button
+                    onClick={async () => {
+                      const addr = contasWalletInput.trim();
+                      if (!addr.startsWith('0x') || addr.length !== 42) { alert('Endereço inválido.'); return; }
+                      setLoading(true);
+                      const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ walletAddress: addr, type: 'manual' }),
+                      });
+                      const json = await res.json();
+                      if (json.success) setCitizen(json.data); else alert(json.error);
+                      setContasWalletInput('');
+                      setLoading(false);
+                    }}
+                    disabled={loading || !contasWalletInput.trim()}
+                    className="flex-1 p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600 disabled:opacity-50"
+                  >
+                    📋 Vincular Carteira
+                  </button>
+                </div>
+                <p className="text-xs text-slate-600 text-center">
+                  MetaMask, Binance Web3 Wallet, TrustWallet, Coinbase Wallet — qualquer EVM (0x...)
+                </p>
+              </div>
+            </div>
+          )}
+
+          {citizen?.walletAddress && (
+            <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-3">
+              <p className="text-xs text-slate-400 font-bold uppercase">Trocar ou adicionar outra carteira</p>
+              <input
+                placeholder="Novo endereço 0x..."
+                value={contasWalletInput}
+                onChange={e => setContasWalletInput(e.target.value)}
+                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 font-mono text-sm"
+              />
+              <button
+                onClick={async () => {
+                  const addr = contasWalletInput.trim();
+                  if (!addr.startsWith('0x') || addr.length !== 42) { alert('Endereço inválido.'); return; }
+                  if (!citizen) return;
+                  setLoading(true);
+                  const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ walletAddress: addr, type: 'manual' }),
+                  });
+                  const json = await res.json();
+                  if (json.success) setCitizen(json.data); else alert(json.error);
+                  setContasWalletInput('');
+                  setLoading(false);
+                }}
+                disabled={loading || !contasWalletInput.trim()}
+                className="w-full p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600 disabled:opacity-50"
+              >
+                Atualizar Carteira
+              </button>
+            </div>
+          )}
+
+          <p className="text-xs text-slate-600 text-center pt-4">
+            As carteiras são usadas para receber tokens SOLID e transacionar na blockchain.
+          </p>
+        </main>
+      )}
 
       {dashboardTab === 'PROFILE' && (
         <main className="p-6 max-w-md mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">

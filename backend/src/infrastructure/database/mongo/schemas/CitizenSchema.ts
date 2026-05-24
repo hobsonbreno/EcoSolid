@@ -4,7 +4,7 @@ import { CitizenLevel } from '../../../../domain/enums/CitizenLevel';
 export const CitizenSchema = new Schema({
   _id: { type: String, required: true },
   name: { type: String, required: true },
-  walletAddress: { type: String, required: true, unique: true },
+  walletAddress: { type: String, sparse: true },
   cpf: { type: String },
   email: { type: String },
   phone: { type: String },
