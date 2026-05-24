@@ -21,6 +21,10 @@ export class MongoCitizenRepository implements ICitizenRepository {
     const doc = await this.citizenModel.findOne({ walletAddress }).exec();
     return doc ? this.mapToDomain(doc) : null;
   }
+  async findByEmail(email: string): Promise<Citizen | null> {
+    const doc = await this.citizenModel.findOne({ email }).exec();
+    return doc ? this.mapToDomain(doc) : null;
+  }
   async findByCredentialId(credentialId: string): Promise<Citizen | null> {
     const doc = await this.citizenModel.findOne({ credentialId }).exec();
     return doc ? this.mapToDomain(doc) : null;

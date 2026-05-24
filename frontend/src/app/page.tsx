@@ -78,15 +78,93 @@ export default function EcoSolidApp() {
   // Verifica se há biometria salva no dispositivo para exibir botão
   const hasStoredBiometric = typeof window !== 'undefined' && !!localStorage.getItem('ecosolid_credentialId');
 
+  // Google OAuth
+  const [googleReady, setGoogleReady] = useState(false);
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || '';
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  // Carrega Google Identity Services (apenas na tela de LOGIN)
+  useEffect(() => {
+    if (view !== 'LOGIN' || !googleClientId || typeof window === 'undefined') return;
+    if (document.getElementById('gsi-script')) return;
+    const script = document.createElement('script');
+    script.id = 'gsi-script';
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => setGoogleReady(true);
+    document.body.appendChild(script);
+  }, [view, googleClientId]);
+
+  // Inicializa o Google One Tap / Sign-In quando o script carrega
+  useEffect(() => {
+    if (!googleReady || !googleClientId || !googleBtnRef.current) return;
+    const w = window as any;
+    w.google?.accounts?.id?.initialize({
+      client_id: googleClientId,
+      callback: (resp: any) => {
+        try {
+          const payload = JSON.parse(atob(resp.credential.split('.')[1]));
+          const name = payload.name || '';
+          const email = payload.email || '';
+          setFormData(prev => ({ ...prev, name, email }));
+          // Tenta buscar cidadão por email
+          apiFetch(`/citizens/by-email/${encodeURIComponent(email)}`)
+            .then(r => r.json())
+            .then(json => {
+              if (json.success && json.data) {
+                setCitizen(json.data);
+                loadHistory(json.data.id);
+                setView('DASHBOARD');
+              } else {
+                // Email não cadastrado — vai pra registro pré-preenchido
+                setFormData(prev => ({ ...prev, name, email }));
+                setView('REGISTER');
+              }
+            })
+            .catch(() => setView('REGISTER'));
+        } catch {
+          alert('Erro ao processar login Google. Tente novamente.');
+        }
+      },
+    });
+    w.google?.accounts?.id?.renderButton(googleBtnRef.current, {
+      type: 'standard',
+      theme: 'filled_black',
+      size: 'large',
+      text: 'signin_with',
+      shape: 'rectangular',
+      width: 360,
+    });
+  }, [googleReady, googleClientId]);
+
+  // Fallback de localização por IP (quando GPS falha)
+  const fetchIpLocation = async (): Promise<{ lat: number; lng: number; address: string; approximate: true } | null> => {
+    try {
+      const res = await fetch('https://ip-api.com/json/?fields=city,regionName,country,lat,lon');
+      const data = await res.json();
+      if (data?.lat && data?.lon) {
+        return {
+          lat: data.lat,
+          lng: data.lon,
+          address: [data.city, data.regionName, data.country].filter(Boolean).join(', '),
+          approximate: true,
+        };
+      }
+    } catch {}
+    return null;
+  };
+
   // -------------------------------------------------------------------------------------------------
   // LÓGICA DE LOGIN COM METAMASK (Redireciona para Cadastro se não existir)
   // -------------------------------------------------------------------------------------------------
   const isMobileDevice = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const isChromeAndroid = typeof navigator !== 'undefined' && /Android.*Chrome/i.test(navigator.userAgent);
 
   const openInMetaMaskApp = () => {
-    // Abre o app atual dentro do navegador integrado do MetaMask Mobile
-    const currentUrl = window.location.href;
-    const deepLink = `https://metamask.app.link/dapp/${currentUrl}`;
+    // Deep link seguro: usa a origem (domínio base) em vez da URL completa
+    // para evitar problemas de encoding e SSL
+    const baseUrl = window.location.origin + window.location.pathname;
+    const deepLink = `https://metamask.app.link/dapp/${encodeURIComponent(baseUrl)}`;
     window.open(deepLink, '_blank');
   };
 
@@ -153,7 +231,7 @@ export default function EcoSolidApp() {
   const requestPermissions = async () => {
     const result = { location: false, camera: false };
 
-    // 1. Localização
+    // 1. Localização (GPS primeiro, fallback por IP)
     if (navigator.geolocation) {
       try {
         const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
@@ -164,7 +242,6 @@ export default function EcoSolidApp() {
         result.location = true;
         const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         setLastKnownLocation(coords);
-        // Já obtém o endereço para uso futuro
         try {
           const geoRes = await fetch(
             `https://nominatim.openstreetmap.org/reverse?lat=${coords.lat}&lon=${coords.lng}&format=json&accept-language=pt-BR`,
@@ -172,11 +249,26 @@ export default function EcoSolidApp() {
           );
           const geoData = await geoRes.json();
           if (geoData?.display_name) {
-            lastKnownAddress.current = geoData.display_name;
+            lastKnownAddress.current = geoData.display_name + ' 📡 GPS';
           }
         } catch {}
       } catch (err: any) {
-        console.warn('Localização negada:', err?.message);
+        console.warn('GPS indisponível, usando IP:', err?.message);
+        // Fallback por IP
+        const ipLoc = await fetchIpLocation();
+        if (ipLoc) {
+          result.location = true;
+          setLastKnownLocation({ lat: ipLoc.lat, lng: ipLoc.lng });
+          lastKnownAddress.current = `${ipLoc.address} ⚠️ Aproximada (IP)`;
+        }
+      }
+    } else {
+      // Sem API de geolocalização (ex: navegador MetaMask Mobile)
+      const ipLoc = await fetchIpLocation();
+      if (ipLoc) {
+        result.location = true;
+        setLastKnownLocation({ lat: ipLoc.lat, lng: ipLoc.lng });
+        lastKnownAddress.current = `${ipLoc.address} ⚠️ Aproximada (IP)`;
       }
     }
 
@@ -427,12 +519,21 @@ export default function EcoSolidApp() {
 
     if (navigator.geolocation) {
       setLocationLoading(true);
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
+      let gpsResolved = false;
+      const gpsPromise = new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject,
+          { enableHighAccuracy: false, timeout: 5000, maximumAge: 120000 }
+        );
+      });
+      // Se GPS demorar mais de 5s, ativa fallback por IP
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000));
+
+      Promise.race([gpsPromise, timeoutPromise]).then(async (pos) => {
+        if (pos) {
+          gpsResolved = true;
           const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           setLocation(coords);
           setLastKnownLocation(coords);
-          // Geocodificação reversa
           try {
             const geoRes = await fetch(
               `https://nominatim.openstreetmap.org/reverse?lat=${coords.lat}&lon=${coords.lng}&format=json&accept-language=pt-BR`,
@@ -440,27 +541,52 @@ export default function EcoSolidApp() {
             );
             const geoData = await geoRes.json();
             if (geoData?.display_name) {
-              setLocationAddress(geoData.display_name);
+              setLocationAddress(geoData.display_name + ' 📡 GPS');
               lastKnownAddress.current = geoData.display_name;
             } else {
-              setLocationAddress(`${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`);
+              setLocationAddress(`${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)} 📡 GPS`);
             }
           } catch {
-            setLocationAddress(`${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`);
+            setLocationAddress(`${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)} 📡 GPS`);
           }
-          setLocationLoading(false);
-        },
-        (err) => {
-          // Se já temos fallback, não mostra erro
-          if (!lastKnownLocation) {
-            console.warn('Geolocalização indisponível:', err?.message);
+        }
+        // Se timeout de 5s sem GPS, tenta IP
+        if (!gpsResolved) {
+          const ipLoc = await fetchIpLocation();
+          if (ipLoc) {
+            setLocation(ipLoc);
+            setLastKnownLocation({ lat: ipLoc.lat, lng: ipLoc.lng });
+            setLocationAddress(`${ipLoc.address} ⚠️ Aproximada (IP)`);
+            lastKnownAddress.current = `${ipLoc.address} ⚠️ Aproximada`;
           }
-          setLocationLoading(false);
-        },
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 120000 }
-      );
+        }
+        setLocationLoading(false);
+      }).catch(async () => {
+        // GPS falhou totalmente, tenta IP
+        if (!lastKnownLocation) {
+          const ipLoc = await fetchIpLocation();
+          if (ipLoc) {
+            setLocation(ipLoc);
+            setLastKnownLocation({ lat: ipLoc.lat, lng: ipLoc.lng });
+            setLocationAddress(`${ipLoc.address} ⚠️ Aproximada (IP)`);
+            lastKnownAddress.current = `${ipLoc.address} ⚠️ Aproximada`;
+          }
+        }
+        setLocationLoading(false);
+      });
     } else {
-      setLocationLoading(false);
+      // Sem navigator.geolocation (MetaMask Mobile bloqueia), usa IP direto
+      setLocationLoading(true);
+      (async () => {
+        const ipLoc = await fetchIpLocation();
+        if (ipLoc) {
+          setLocation(ipLoc);
+          setLastKnownLocation({ lat: ipLoc.lat, lng: ipLoc.lng });
+          setLocationAddress(`${ipLoc.address} ⚠️ Aproximada (IP)`);
+          lastKnownAddress.current = `${ipLoc.address} ⚠️ Aproximada`;
+        }
+        setLocationLoading(false);
+      })();
     }
   };
 
@@ -572,6 +698,13 @@ export default function EcoSolidApp() {
           <span className="text-2xl">🦊</span> {loading ? "Conectando..." : "Conectar / Cadastrar com MetaMask"}
         </button>
 
+        {/* Google Sign-In */}
+        {googleClientId ? (
+          <div ref={googleBtnRef} className="w-full max-w-sm flex justify-center" />
+        ) : (
+          <p className="text-xs text-slate-600 text-center">Google Sign-In: configure NEXT_PUBLIC_GOOGLE_CLIENT_ID</p>
+        )}
+
         {hasStoredBiometric && (
           <button onClick={handleBiometricLogin} disabled={loading} className="p-4 rounded-xl bg-slate-800 text-white font-bold w-full max-w-sm hover:bg-slate-700 flex items-center justify-center gap-2 border border-slate-700">
             <span className="text-2xl text-emerald-400">👆</span> {loading ? "Verificando..." : "Entrar com Digital / Facial"}
@@ -587,7 +720,9 @@ export default function EcoSolidApp() {
         {!hasStoredBiometric && (
           <p className="text-xs text-slate-600 text-center max-w-sm">
             {isMobileDevice
-              ? "Toque em \"Abrir com MetaMask App\" para acessar com sua carteira. O app será aberto no navegador integrado do MetaMask."
+              ? isChromeAndroid
+                ? "No Chrome Android, use o botão \"Entrar com Google\" ou abra o app pelo MetaMask App acima. O MetaMask não funciona como extensão no Chrome mobile."
+                : "Toque em \"Abrir com MetaMask App\" para acessar com sua carteira. O app será aberto no navegador integrado do MetaMask."
               : "Conecte sua carteira MetaMask primeiro. Após o login, você poderá cadastrar sua digital ou reconhecimento facial para acesso rápido nas próximas vezes."
             }
           </p>

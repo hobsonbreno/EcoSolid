@@ -22,6 +22,17 @@ export class CitizenController {
     }
   }
 
+  @Get('by-email/:email')
+  async getByEmail(@Param('email') email: string) {
+    try {
+      const citizen = await this.citizenRepo.findByEmail(email);
+      if (!citizen) return { success: false, error: 'Cidadão não encontrado' };
+      return { success: true, data: citizen };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
   @Get(':wallet')
   async getByWallet(@Param('wallet') wallet: string) {
     try {
