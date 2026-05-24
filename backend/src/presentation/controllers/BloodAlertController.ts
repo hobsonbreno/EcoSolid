@@ -32,4 +32,19 @@ export class BloodAlertController {
       return { success: false, error: error.message };
     }
   }
+
+  @Get('blood/active')
+  async activeAlerts() {
+    try {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const alerts = await this.alertModel
+        .find({ createdAt: { $gte: since } })
+        .sort({ createdAt: -1 })
+        .lean()
+        .exec();
+      return { success: true, data: alerts };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
 }

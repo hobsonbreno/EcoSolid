@@ -1,5 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect } from 'react';
+import QRCodeLib from 'qrcode';
+import { jsPDF } from 'jspdf';
 
 declare global {
   interface Window { ethereum?: any; PublicKeyCredential?: any; }
@@ -74,6 +76,9 @@ export default function EcoSolidApp() {
   const [actionModal, setActionModal] = useState<{ open: boolean, type: string, points: number, icon: string, title: string } | null>(null);
   const [actionBloodType, setActionBloodType] = useState('');
   const [certificateModal, setCertificateModal] = useState<{ action: any; citizenName: string } | null>(null);
+  const [redeemModal, setRedeemModal] = useState<{ code: string; partnerName: string; benefitDescription: string; solidCost: number } | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [bloodAlerts, setBloodAlerts] = useState<any[]>([]);
   const [location, setLocation] = useState<{ lat: number, lng: number } | null>(null);
   const [locationAddress, setLocationAddress] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -671,6 +676,20 @@ export default function EcoSolidApp() {
   // -------------------------------------------------------------------------------------------------
   // CARREGAR HISTÓRICO DO BANCO
   // -------------------------------------------------------------------------------------------------
+  // Busca alertas de sangue ativos para o tipo do cidadão
+  useEffect(() => {
+    if (!citizen?.bloodType || view !== 'DASHBOARD') return;
+    apiFetch('/alerts/blood/active')
+      .then(r => r.json())
+      .then(json => {
+        if (json.success) {
+          const relevant = json.data.filter((a: any) => a.bloodType === citizen.bloodType);
+          setBloodAlerts(relevant);
+        }
+      })
+      .catch(() => {});
+  }, [citizen?.bloodType, view]);
+
   const loadHistory = async (citizenId: string) => {
     try {
       const res = await apiFetch(`/impact/citizen/${citizenId}`);
@@ -737,7 +756,22 @@ export default function EcoSolidApp() {
       const json = await res.json();
       if (json.success) {
         setCitizen({ ...citizen, totalPoints: citizen.totalPoints - cost });
-        alert(`🎁 Resgate concluído!\n\nCódigo: ${json.data.code}\nParceiro: ${name}\nBenefício: ${description}\n\nApresente este código no local.`);
+        // Gera QR Code
+        const qrText = JSON.stringify({
+          code: json.data.code,
+          citizenId: citizen.id,
+          partner: name,
+          benefit: description,
+          timestamp: new Date().toISOString(),
+        });
+        const dataUrl = await QRCodeLib.toDataURL(qrText, { width: 300, margin: 2 });
+        setQrDataUrl(dataUrl);
+        setRedeemModal({
+          code: json.data.code,
+          partnerName: name,
+          benefitDescription: description,
+          solidCost: cost,
+        });
       } else alert(json.error);
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -1379,6 +1413,22 @@ export default function EcoSolidApp() {
 
       {dashboardTab === 'OVERVIEW' && (
         <main className="p-6 max-w-md mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          {/* Banner alerta de sangue raro */}
+          {bloodAlerts.length > 0 && bloodAlerts.map((alert: any, i: number) => (
+            <div key={i} className="p-4 rounded-xl bg-red-600/20 border border-red-500 animate-pulse">
+              <p className="text-sm font-bold text-red-400">🚨 URGENTE: Seu tipo sanguíneo <span className="font-black">{alert.bloodType}</span> é necessário no <strong>{alert.hospital}</strong>.</p>
+              <p className="text-xs text-red-300 mt-1">{alert.message}</p>
+              <button
+                onClick={() => {
+                  openActionModal('BLOOD_DONATION', 1000, '🩸', 'Doação de Sangue Emergencial');
+                  setActionBloodType(citizen?.bloodType || '');
+                }}
+                className="mt-3 w-full p-3 rounded-xl bg-red-500 font-bold text-white text-sm hover:bg-red-400"
+              >
+                🩸 Quero Doar — Ganhe 1.000 SOLID
+              </button>
+            </div>
+          ))}
           <section className="p-8 rounded-3xl bg-white/5 border border-white/10 shadow-2xl relative overflow-hidden">
             <p className="text-sm text-slate-400">Saldo Consolidado</p>
             <div className="flex items-end gap-2 mb-6">
@@ -1565,6 +1615,44 @@ Verificado por EcoSolid — blockchain pública`;
             </div>
 
             <button
+              onClick={async () => {
+                const doc = new jsPDF();
+                doc.setFontSize(22);
+                doc.setTextColor(16, 185, 129);
+                doc.text('ECOSOLID', 105, 20, { align: 'center' });
+                doc.setTextColor(100);
+                doc.setFontSize(10);
+                doc.text('Certificado de Impacto Verificavel', 105, 28, { align: 'center' });
+                doc.line(20, 32, 190, 32);
+                doc.setFontSize(12);
+                doc.setTextColor(50);
+                let y = 42;
+                doc.text(`Cidadao: ${certificateModal.citizenName}`, 20, y); y += 10;
+                doc.text(`Acao: ${certificateModal.action.title}`, 20, y); y += 10;
+                if (certificateModal.action.bloodType) { doc.text(`Tipo Sanguineo: ${certificateModal.action.bloodType}`, 20, y); y += 10; }
+                doc.text(`Pontos: ${certificateModal.action.points}`, 20, y); y += 10;
+                doc.text(`Data: ${certificateModal.action.date}`, 20, y); y += 10;
+                doc.text(`Local: ${certificateModal.action.address || 'Registrado'}`, 20, y); y += 10;
+                const txHash = certificateModal.action.tx;
+                doc.setTextColor(0, 100, 200);
+                doc.setFontSize(8);
+                doc.text(`Blockchain: ${txHash}`, 20, y); y += 12;
+                doc.setTextColor(100);
+                doc.setFontSize(10);
+                doc.text('Certificado verificavel na blockchain Polygon', 105, y + 5, { align: 'center' });
+                doc.text(`https://polygonscan.com/tx/${txHash}`, 105, y + 12, { align: 'center' });
+                // QR Code no PDF
+                try {
+                  const qrData = await QRCodeLib.toDataURL(`https://polygonscan.com/tx/${txHash}`, { width: 80, margin: 1 });
+                  doc.addImage(qrData, 'PNG', 75, y + 18, 40, 40);
+                } catch {}
+                doc.save(`certificado-ecosolid-${txHash?.slice(0, 8) || 'acao'}.pdf`);
+              }}
+              className="w-full p-4 rounded-xl bg-slate-700 font-bold text-white hover:bg-slate-600 flex items-center justify-center gap-2 mb-2"
+            >
+              📥 Baixar PDF
+            </button>
+            <button
               onClick={() => {
                 const certText =
 `📜 CERTIFICADO DE IMPACTO — EcoSolid
@@ -1583,6 +1671,43 @@ Verificado por EcoSolid — blockchain pública`;
             >
               📋 Compartilhar Certificado
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal QR Code de Resgate */}
+      {redeemModal && (
+        <div className="fixed inset-0 bg-black/95 z-50 flex flex-col p-4">
+          <div className="m-auto bg-slate-900 border border-amber-500/30 p-6 rounded-3xl w-full max-w-sm space-y-6 text-center">
+            <h3 className="text-xl font-bold text-amber-400">🎁 Resgate Confirmado</h3>
+            <p className="text-sm text-slate-300">{redeemModal.benefitDescription} — <strong>{redeemModal.solidCost} SOLID</strong></p>
+            {qrDataUrl && <img src={qrDataUrl} alt="QR Code" className="mx-auto rounded-xl border border-white/10" />}
+            <div className="bg-white/5 p-3 rounded-xl">
+              <p className="text-xs text-slate-400 mb-1">Código do Resgate</p>
+              <p className="text-2xl font-black font-mono tracking-widest text-amber-400">{redeemModal.code}</p>
+            </div>
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  if (qrDataUrl) {
+                    const a = document.createElement('a');
+                    a.href = qrDataUrl;
+                    a.download = `resgate-${redeemModal.code}.png`;
+                    a.click();
+                  }
+                }}
+                className="w-full p-3 rounded-xl bg-slate-700 text-white font-bold text-sm hover:bg-slate-600 flex items-center justify-center gap-2"
+              >
+                💾 Salvar QR Code
+              </button>
+              <button
+                onClick={() => { setRedeemModal(null); setQrDataUrl(null); }}
+                className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white hover:bg-amber-400"
+              >
+                Fechar
+              </button>
+            </div>
+            <p className="text-xs text-slate-600">Apresente este código no local do parceiro</p>
           </div>
         </div>
       )}
