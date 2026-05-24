@@ -10,7 +10,7 @@ export class EthersBlockchainService implements IBlockchainService {
   private ready = false;
 
   constructor() {
-    const RPC_URL = process.env.BLOCKCHAIN_RPC_URL || 'https://rpc.sepolia.org';
+    const RPC_URL = process.env.BLOCKCHAIN_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com';
     const PRIVATE_KEY = process.env.BLOCKCHAIN_PRIVATE_KEY || '0x0000000000000000000000000000000000000000000000000000000000000001';
     const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000';
 
