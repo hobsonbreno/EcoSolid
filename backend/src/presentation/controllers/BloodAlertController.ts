@@ -9,6 +9,18 @@ export class BloodAlertController {
     @InjectModel('Citizen') private readonly citizenModel: Model<any>,
   ) {}
 
+  private async sendWhatsApp(phone: string, message: string, apikey: string): Promise<boolean> {
+    try {
+      const cleanPhone = phone.replace(/^\+/, '').replace(/\D/g, '');
+      const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanPhone}&text=${encodeURIComponent(message)}&apikey=${apikey}`;
+      const res = await fetch(url);
+      return res.ok;
+    } catch (err) {
+      console.warn('[WhatsApp] Falha ao enviar mensagem:', err);
+      return false;
+    }
+  }
+
   @Post('blood')
   async createAlert(@Body() body: { bloodType: string; message: string; hospital: string; location?: string }) {
     try {
@@ -19,14 +31,21 @@ export class BloodAlertController {
         location: body.location || 'Fortaleza - CE',
       });
 
-      // Dispara push notifications para todos com pushToken e tipo sanguíneo correspondente
-      try {
-        const citizens = await this.citizenModel.find({
-          bloodType: body.bloodType.toUpperCase(),
-          pushToken: { $exists: true, $ne: null },
-        }).lean().exec();
+      const bloodType = body.bloodType.toUpperCase();
+      const whatsappMsg = `🚨 URGENTE EcoSolid: Seu tipo sanguíneo ${bloodType} é necessário no ${body.hospital}. ${body.message} Doe agora e ganhe 1.000 SOLID! Acesse: https://eco-solid.vercel.app`;
 
-        if (citizens.length > 0) {
+      // Buscar cidadãos com o tipo sanguíneo
+      const citizens = await this.citizenModel.find({
+        bloodType: bloodType,
+      }).lean().exec();
+
+      let pushCount = 0;
+      let whatsappCount = 0;
+
+      // Dispara push notifications para quem tem pushToken
+      try {
+        const pushCitizens = citizens.filter(c => c.pushToken);
+        if (pushCitizens.length > 0) {
           const webpush = require('web-push');
           webpush.setVapidDetails(
             'mailto:ecosolid@ecosolid.vercel.app',
@@ -34,18 +53,33 @@ export class BloodAlertController {
             process.env.VAPID_PRIVATE_KEY || '',
           );
           const payload = JSON.stringify({
-            title: `🚨 Urgente: Seu sangue ${body.bloodType.toUpperCase()} é necessário!`,
+            title: `🚨 Urgente: Seu sangue ${bloodType} é necessário!`,
             body: `${body.hospital}: ${body.message}. Ganhe 1.000 SOLID doando agora!`,
             icon: '/icons/icon-192x192.png',
             data: { url: '/?action=blood_donation' },
           });
-          for (const c of citizens) {
-            try { await webpush.sendNotification(c.pushToken, payload); } catch {}
+          for (const c of pushCitizens) {
+            try {
+              await webpush.sendNotification(c.pushToken, payload);
+              pushCount++;
+            } catch {}
           }
         }
       } catch (pushErr) { console.warn('Push não enviado:', pushErr); }
 
-      return { success: true, data: alert, message: `Alerta criado e notificações enviadas para ${body.bloodType}` };
+      // Envia WhatsApp via CallMeBot para quem tem whatsappApiKey
+      for (const c of citizens) {
+        if (c.whatsappApiKey && c.phone) {
+          const sent = await this.sendWhatsApp(c.phone, whatsappMsg, c.whatsappApiKey);
+          if (sent) whatsappCount++;
+        }
+      }
+
+      return {
+        success: true,
+        data: alert,
+        message: `Alerta criado! ${pushCount} push + ${whatsappCount} WhatsApp enviados para ${bloodType}`,
+      };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

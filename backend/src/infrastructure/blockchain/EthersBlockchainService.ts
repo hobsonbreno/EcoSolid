@@ -7,46 +7,97 @@ export class EthersBlockchainService implements IBlockchainService {
   private provider: ethers.JsonRpcProvider;
   private wallet: ethers.Wallet;
   private contract: ethers.Contract;
+  private ready = false;
 
   constructor() {
-    // Em produção isso estaria num .env seguro
-    const RPC_URL = process.env.RPC_URL || 'https://rpc2.sepolia.org';
-    const PRIVATE_KEY = process.env.PRIVATE_KEY || '0x0000000000000000000000000000000000000000000000000000000000000001'; 
-    const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000'; 
+    const RPC_URL = process.env.BLOCKCHAIN_RPC_URL || 'https://rpc.sepolia.org';
+    const PRIVATE_KEY = process.env.BLOCKCHAIN_PRIVATE_KEY || '0x0000000000000000000000000000000000000000000000000000000000000001';
+    const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS || '0x0000000000000000000000000000000000000000';
 
-    // ABI reduzida contendo só a função que nosso MVP precisa
     const abi = [
-      "function mintSolidToken(address to, uint256 amount) public returns (bool)"
+      "event ActionRegistered(bytes32 indexed actionId, address indexed citizen, uint256 points, string actionType, uint256 timestamp)",
+      "event RedemptionConfirmed(bytes32 indexed redemptionId, address indexed citizen, string benefit, uint256 solidSpent, uint256 timestamp)",
+      "function registerAction(bytes32 actionId, address citizen, uint256 points, string memory actionType) public",
+      "function confirmRedemption(bytes32 redemptionId, address citizen, string memory benefit, uint256 solidSpent) public",
     ];
 
     try {
       this.provider = new ethers.JsonRpcProvider(RPC_URL);
       this.wallet = new ethers.Wallet(PRIVATE_KEY, this.provider);
       this.contract = new ethers.Contract(CONTRACT_ADDRESS, abi, this.wallet);
+      this.ready = true;
+      console.log(`[Blockchain] Conectado à Sepolia. Wallet: ${this.wallet.address}`);
     } catch (err) {
-      console.warn('[Blockchain] Aviso: Falha na inicialização do provider Ethers. Provavelmente as chaves estão ausentes.', err);
+      console.warn('[Blockchain] Aviso: Falha na inicialização. Transações serão simuladas.', err);
     }
   }
 
   async mintSolidToken(walletAddress: string, amount: number): Promise<string> {
-    try {
-      console.log(`[Blockchain] Iniciando emissão de ${amount} SOLID para ${walletAddress}...`);
-      
-      // Quando o Smart Contract estiver pronto e deployado na Sepolia, 
-      // usaremos a linha abaixo para registrar na rede real:
-      // const tx = await this.contract.mintSolidToken(walletAddress, amount);
-      // await tx.wait();
-      // return tx.hash;
-      
-      // Mock para MVP/Desenvolvimento Inicial
-      const mockTxHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
-      
-      console.log(`[Blockchain] Emissão concluída! TxHash: ${mockTxHash}`);
-      return mockTxHash;
+    return this.registerAction(
+      ethers.hexlify(ethers.randomBytes(32)),
+      walletAddress,
+      amount,
+      'LEGACY_MINT',
+    );
+  }
 
-    } catch (error) {
-      console.error('[Blockchain] Falha crítica na chamada do Smart Contract:', error);
-      throw new Error('Erro ao integrar com a rede Blockchain para emissão de Tokens.');
+  async registerAction(
+    actionId: string,
+    citizenAddress: string,
+    points: number,
+    actionType: string,
+  ): Promise<string> {
+    if (!this.ready) {
+      const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+      console.log(`[Blockchain] MOCK (não inicializado): ${mockHash}`);
+      return mockHash;
+    }
+
+    try {
+      const actionIdBytes = ethers.hexlify(ethers.randomBytes(32));
+      const addr = citizenAddress || this.wallet.address;
+      console.log(`[Blockchain] registerAction — actionId: ${actionIdBytes}, citizen: ${addr}, points: ${points}, type: ${actionType}`);
+
+      const tx = await this.contract.registerAction(actionIdBytes, addr, points, actionType);
+      console.log(`[Blockchain] Tx enviada: ${tx.hash}`);
+      await tx.wait();
+      console.log(`[Blockchain] Tx confirmada: ${tx.hash}`);
+      return tx.hash;
+    } catch (error: any) {
+      console.error('[Blockchain] Falha ao registrar ação na blockchain:', error.message);
+      // Salvar como pendente — nunca quebrar o fluxo do usuário
+      const pendingHash = 'pending-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
+      console.log(`[Blockchain] Hash pendente (retry posterior): ${pendingHash}`);
+      return pendingHash;
+    }
+  }
+
+  async confirmRedemption(
+    redemptionId: string,
+    citizenAddress: string,
+    benefit: string,
+    solidSpent: number,
+  ): Promise<string> {
+    if (!this.ready) {
+      const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+      console.log(`[Blockchain] MOCK redemption: ${mockHash}`);
+      return mockHash;
+    }
+
+    try {
+      const redemptionIdBytes = ethers.hexlify(ethers.randomBytes(32));
+      const addr = citizenAddress || this.wallet.address;
+      console.log(`[Blockchain] confirmRedemption — id: ${redemptionIdBytes}, citizen: ${addr}, benefit: ${benefit}, solid: ${solidSpent}`);
+
+      const tx = await this.contract.confirmRedemption(redemptionIdBytes, addr, benefit, solidSpent);
+      console.log(`[Blockchain] Tx enviada: ${tx.hash}`);
+      await tx.wait();
+      console.log(`[Blockchain] Tx confirmada: ${tx.hash}`);
+      return tx.hash;
+    } catch (error: any) {
+      console.error('[Blockchain] Falha ao confirmar resgate na blockchain:', error.message);
+      const pendingHash = 'pending-redemption-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
+      return pendingHash;
     }
   }
 }

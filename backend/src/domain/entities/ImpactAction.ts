@@ -12,6 +12,7 @@ export class ImpactAction {
     public readonly locationAddress?: string,
     public readonly bloodType?: string,
     public readonly txHash?: string,
+    public readonly status: string = 'PENDENTE_VALIDACAO',
     public readonly timestamp: Date = new Date(),
   ) {}
 }

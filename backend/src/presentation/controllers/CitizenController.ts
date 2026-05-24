@@ -47,12 +47,41 @@ export class CitizenController {
     }
   }
 
-  @Get(':wallet')
+  @Get(':id')
+  async getById(@Param('id') id: string) {
+    try {
+      const citizen = await this.citizenRepo.findById(id);
+      if (!citizen) return { success: false, error: 'Cidadão não encontrado' };
+      return { success: true, data: citizen };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  @Get('wallet/:wallet')
   async getByWallet(@Param('wallet') wallet: string) {
     try {
       const citizen = await this.getUseCase.execute(wallet);
       if (!citizen) return { success: false, error: 'Cidadão não encontrado' };
       return { success: true, data: citizen };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  @Patch(':id')
+  async updateCitizen(@Param('id') id: string, @Body() body: any) {
+    try {
+      const allowedFields = ['bloodType', 'whatsappApiKey', 'phone', 'email', 'address'];
+      const update: any = {};
+      for (const key of allowedFields) {
+        if (body[key] !== undefined) update[key] = body[key];
+      }
+      if (Object.keys(update).length === 0) return { success: false, error: 'Nenhum campo válido para atualizar' };
+
+      const citizen = await this.citizenModel.findByIdAndUpdate(id, update, { new: true }).lean().exec();
+      if (!citizen) return { success: false, error: 'Cidadão não encontrado' };
+      return { success: true, data: citizen, message: 'Dados atualizados com sucesso!' };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

@@ -48,6 +48,7 @@ export default function EcoSolidApp() {
   const [dashboardTab, setDashboardTab] = useState<'OVERVIEW' | 'BENEFITS' | 'CONTAS' | 'PROFILE'>('OVERVIEW');
   const [contasWalletInput, setContasWalletInput] = useState('');
   const [contasWalletType, setContasWalletType] = useState<'metamask' | 'binance' | 'manual'>('metamask');
+  const [whatsappApiKeyInput, setWhatsappApiKeyInput] = useState('');
   const [citizen, setCitizen] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [txHistory, setTxHistory] = useState<any[]>([]);
@@ -175,6 +176,35 @@ export default function EcoSolidApp() {
       localStorage.setItem('ecosolid_onboarding_done', '1');
     }
   }, [view]);
+
+  // Sessão persistente: restaura cidadão após refresh
+  useEffect(() => {
+    const saved = localStorage.getItem('ecosolid_citizen');
+    const method = localStorage.getItem('ecosolid_login_method');
+    if (saved && method && !citizen) {
+      const c = JSON.parse(saved);
+      const endpoint = method === 'google' || method === 'email'
+        ? `/citizens/by-email/${encodeURIComponent(c.email || '')}`
+        : `/citizens/wallet/${c.walletAddress || ''}`;
+      apiFetch(endpoint)
+        .then(r => r.json())
+        .then(json => {
+          if (json?.success && json?.data) {
+            setCitizen(json.data);
+            loadHistory(json.data.id);
+            setView('DASHBOARD');
+          } else {
+            localStorage.removeItem('ecosolid_citizen');
+            localStorage.removeItem('ecosolid_login_method');
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem('ecosolid_citizen');
+          localStorage.removeItem('ecosolid_login_method');
+        });
+    }
+  }, []);
+
   const [location, setLocation] = useState<{ lat: number, lng: number } | null>(null);
   const [locationAddress, setLocationAddress] = useState<string | null>(null);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -210,6 +240,8 @@ export default function EcoSolidApp() {
               setCitizen(json.data);
               loadHistory(json.data.id);
               setView('DASHBOARD');
+              localStorage.setItem('ecosolid_citizen', JSON.stringify(json.data));
+              localStorage.setItem('ecosolid_login_method', 'google');
             } else {
               setView('REGISTER');
             }
@@ -254,6 +286,8 @@ export default function EcoSolidApp() {
                   setCitizen(json.data);
                   loadHistory(json.data.id);
                   setView('DASHBOARD');
+                  localStorage.setItem('ecosolid_citizen', JSON.stringify(json.data));
+                  localStorage.setItem('ecosolid_login_method', 'google');
                 } else {
                   setFormData(prev => ({ ...prev, name, email }));
                   setView('REGISTER');
@@ -355,6 +389,8 @@ export default function EcoSolidApp() {
             setShowPermissionSetup(true);
           }
           setView('DASHBOARD');
+          localStorage.setItem('ecosolid_citizen', JSON.stringify(json.data));
+          localStorage.setItem('ecosolid_login_method', 'metamask');
           if (!json.data.credentialId && !localStorage.getItem('ecosolid_credentialId')) {
             setShowBiometricPrompt(true);
           }
@@ -801,6 +837,8 @@ export default function EcoSolidApp() {
           lat: a.latitude,
           lng: a.longitude,
           address: a.locationAddress || null,
+          status: a.status || 'REGISTRADO',
+          pointsEarned: a.pointsEarned || 0,
         }));
         setTxHistory(actions);
       }
@@ -833,6 +871,8 @@ export default function EcoSolidApp() {
   // LOGOUT
   // -------------------------------------------------------------------------------------------------
   const handleLogout = () => {
+    localStorage.removeItem('ecosolid_citizen');
+    localStorage.removeItem('ecosolid_login_method');
     setCitizen(null);
     setView('LOGIN');
     setDashboardTab('OVERVIEW');
@@ -851,7 +891,6 @@ export default function EcoSolidApp() {
       });
       const json = await res.json();
       if (json.success) {
-        setCitizen({ ...citizen, totalPoints: citizen.totalPoints - cost });
         // Gera QR Code
         const qrText = JSON.stringify({
           code: json.data.code,
@@ -873,6 +912,31 @@ export default function EcoSolidApp() {
     setLoading(false);
   };
 
+  // Polling do resgate
+  useEffect(() => {
+    if (!redeemModal) return;
+    const interval = setInterval(async () => {
+      try {
+        const checkRes = await apiFetch('/benefits/pending');
+        const checkJson = await checkRes.json();
+        if (checkJson?.success) {
+          const ours = checkJson.data?.find((r: any) => r.code === redeemModal.code);
+          if (!ours) {
+            setRedeemModal(null);
+            setQrDataUrl(null);
+            refreshData();
+            showToast('✅ Resgate confirmado!', 'success');
+          } else if (new Date(ours.createdAt).getTime() + 30 * 60 * 1000 < Date.now()) {
+            setRedeemModal(null);
+            setQrDataUrl(null);
+            showToast('❌ Resgate expirado (30 min)', 'error');
+          }
+        }
+      } catch {}
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [redeemModal?.code]);
+
   const confirmAction = async () => {
     if (!citizen || !actionModal) return;
     setLoading(true);
@@ -889,13 +953,10 @@ export default function EcoSolidApp() {
       });
       const json = await res.json();
       if (json.success) {
-        setCitizen({ ...citizen, totalPoints: citizen.totalPoints + actionModal.points });
-        setTxHistory([
-          { title: actionModal.title, points: `+${actionModal.points} SOLID`, date: new Date().toLocaleString(), icon: actionModal.icon, tx: json.data.txHash, lat: location?.lat, lng: location?.lng, address: locationAddress, bloodType: actionBloodType, img: imagePreview },
-          ...txHistory
-        ]);
         setActionModal(null); setImagePreview(null); setLocation(null); setLocationAddress(null); setActionBloodType('');
-      } else alert(json.error);
+        showToast('Ação registrada! Aguardando validação do parceiro.', 'info');
+        refreshData();
+      } else showToast(json.error, 'error');
     } catch (e) { console.error(e); }
     setLoading(false);
   };
@@ -1117,6 +1178,103 @@ export default function EcoSolidApp() {
   };
   const levelInfo = getLevelInfo(citizen?.totalPoints || 0);
 
+  // Componente auxiliar para exibir rede e saldo na aba Contas
+  const ContasNetworkDisplay = ({ address }: { address: string }) => {
+    const [networkName, setNetworkName] = useState('');
+    const [ethBalance, setEthBalance] = useState('');
+    const [chainId, setChainId] = useState('');
+    useEffect(() => {
+      if (!address || typeof window === 'undefined' || !(window as any).ethereum) return;
+      const updateNetwork = async () => {
+        try {
+          const id = await (window as any).ethereum.request({ method: 'eth_chainId' });
+          setChainId(id);
+          const networks: Record<string, string> = {
+            '0x1': 'Ethereum Mainnet', '0xaa36a7': 'Sepolia Testnet',
+            '0x38': 'BNB Smart Chain', '0x61': 'BSC Testnet',
+            '0x89': 'Polygon Mainnet', '0x13881': 'Polygon Mumbai',
+          };
+          setNetworkName(networks[id] || `Chain ${parseInt(id, 16)}`);
+          const balance = await (window as any).ethereum.request({
+            method: 'eth_getBalance', params: [address, 'latest'],
+          });
+          setEthBalance(parseFloat(ethersParseEther(balance)).toFixed(4));
+        } catch {}
+      };
+      const ethersParseEther = (wei: string) => {
+        const val = BigInt(wei);
+        return (Number(val) / 1e18).toString();
+      };
+      updateNetwork();
+      const interval = setInterval(updateNetwork, 30000);
+      return () => clearInterval(interval);
+    }, [address]);
+
+    return (
+      <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-slate-400">Rede</span>
+          <span className="text-sm font-bold text-slate-200">{networkName || 'Carregando...'}</span>
+        </div>
+        {chainId && chainId !== '0xaa36a7' && (
+          <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <p className="text-xs text-amber-400">⚠️ Você está na {networkName}. Para usar o EcoSolid, mude para Sepolia.</p>
+            <button
+              onClick={async () => {
+                try {
+                  await (window as any).ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: '0xaa36a7' }],
+                  });
+                } catch (e: any) {
+                  if (e.code === 4902) {
+                    await (window as any).ethereum.request({
+                      method: 'wallet_addEthereumChain',
+                      params: [{ chainId: '0xaa36a7', chainName: 'Sepolia Testnet', rpcUrls: ['https://rpc.sepolia.org'], nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 }, blockExplorerUrls: ['https://sepolia.etherscan.io'] }],
+                    });
+                  }
+                }
+              }}
+              className="mt-1 text-xs font-bold text-amber-400 hover:text-amber-300 underline"
+            >Mudar para Sepolia</button>
+          </div>
+        )}
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-slate-400">Saldo Sepolia</span>
+          <a href={`https://sepolia.etherscan.io/address/${address}`} target="_blank" rel="noopener" className="text-sm font-bold text-emerald-400 hover:underline">{ethBalance || '0'} ETH</a>
+        </div>
+        {ethBalance === '0.0000' && (
+          <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+            <p className="text-xs text-amber-400">⚠️ Sem ETH de teste.</p>
+            <a href="https://sepoliafaucet.com" target="_blank" rel="noopener" className="text-xs font-bold text-amber-400 hover:text-amber-300 underline">Obter ETH grátis</a>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const AppointmentCard = ({ citizenId }: { citizenId: string }) => {
+    const [appointment, setAppointment] = useState<any>(null);
+    useEffect(() => {
+      if (!citizenId) return;
+      apiFetch(`/appointments/citizen/${citizenId}`)
+        .then(r => r.json())
+        .then(json => { if (json?.success && json?.data) setAppointment(json.data); })
+        .catch(() => {});
+    }, [citizenId]);
+    if (!appointment) return null;
+    const statusColors: Record<string, string> = { agendado: 'bg-blue-500/20 text-blue-400', confirmado: 'bg-green-500/20 text-green-400', realizado: 'bg-emerald-500/20 text-emerald-400', cancelado: 'bg-red-500/20 text-red-400' };
+    return (
+      <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/30 space-y-2">
+        <h3 className="text-sm font-bold text-purple-400">📅 Próximo Agendamento</h3>
+        <p className="text-white font-bold">{appointment.date} às {appointment.time}</p>
+        <p className="text-sm text-slate-400">{appointment.location}</p>
+        {appointment.notes && <p className="text-xs text-slate-500">{appointment.notes}</p>}
+        <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${statusColors[appointment.status] || 'bg-slate-500/20 text-slate-400'}`}>{appointment.status}</span>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans pb-24">
       {/* Tela de configuração de permissões (primeiro acesso) */}
@@ -1301,54 +1459,83 @@ export default function EcoSolidApp() {
 
       {dashboardTab === 'CONTAS' && (
         <main className="p-6 max-w-md mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          <h2 className="text-2xl font-bold mb-4">💳 Carteiras Vinculadas</h2>
-          <p className="text-sm text-slate-400 mb-6">Conecte carteiras para acumular pontos e transacionar. Você pode vincular MetaMask, Binance ou qualquer carteira EVM.</p>
+          <h2 className="text-2xl font-bold mb-4">💳 Carteiras</h2>
+          <p className="text-sm text-slate-400 mb-4">Conecte sua carteira para receber tokens SOLID e interagir com a blockchain.</p>
 
           {/* Carteira atual */}
           {citizen?.walletAddress ? (
-            <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-400 text-xl">🦊</span>
-                  <div>
-                    <p className="font-bold text-sm text-emerald-300">Carteira Vinculada</p>
-                    <p className="text-xs font-mono text-emerald-400/80 truncate w-48">{citizen.walletAddress}</p>
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-emerald-400 text-xl">🦊</span>
+                    <div>
+                      <p className="font-bold text-sm text-emerald-300">Carteira Vinculada</p>
+                      <p className="text-xs font-mono text-emerald-400/80 truncate w-48">{citizen.walletAddress}</p>
+                    </div>
                   </div>
+                  <button
+                    onClick={async () => {
+                      if (!confirm('Remover esta carteira?')) return;
+                      setLoading(true);
+                      try {
+                        await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                          method: 'PATCH',
+                          body: JSON.stringify({ walletAddress: '', type: 'remove' }),
+                        });
+                        setCitizen({ ...citizen, walletAddress: '' });
+                        setContasWalletInput('');
+                      } catch {}
+                      setLoading(false);
+                    }}
+                    className="text-xs text-red-400 hover:text-red-300 px-3 py-1 rounded-lg bg-red-400/10"
+                  >Remover</button>
                 </div>
+              </div>
+
+              {/* Network indicator + balance */}
+              <ContasNetworkDisplay address={citizen.walletAddress} />
+
+              {/* Trocar carteira */}
+              <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-3">
+                <p className="text-xs text-slate-400 font-bold uppercase">Trocar carteira</p>
+                <input
+                  placeholder="Novo endereço 0x..."
+                  value={contasWalletInput}
+                  onChange={e => setContasWalletInput(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 font-mono text-sm"
+                />
                 <button
                   onClick={async () => {
-                    if (!confirm('Remover esta carteira? Você poderá adicionar outra depois.')) return;
-                    if (!citizen) return;
+                    const addr = contasWalletInput.trim();
+                    if (!addr.startsWith('0x') || addr.length !== 42) { showToast('Endereço inválido', 'error'); return; }
                     setLoading(true);
-                    try {
-                      await apiFetch(`/citizens/${citizen.id}/wallet`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ walletAddress: '', type: 'remove' }),
-                      });
-                      setCitizen({ ...citizen, walletAddress: '' });
-                    } catch {}
+                    const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({ walletAddress: addr, type: 'manual' }),
+                    });
+                    const json = await res.json();
+                    if (json.success) setCitizen(json.data); else showToast(json.error, 'error');
+                    setContasWalletInput('');
                     setLoading(false);
                   }}
-                  className="text-xs text-red-400 hover:text-red-300 px-3 py-1 rounded-lg bg-red-400/10"
-                >
-                  Remover
-                </button>
+                  disabled={loading || !contasWalletInput.trim()}
+                  className="w-full p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600 disabled:opacity-50"
+                >Atualizar Carteira</button>
               </div>
             </div>
           ) : (
-            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
-              <p className="text-sm text-amber-300 text-center">⚠️ Nenhuma carteira vinculada. Adicione uma para ganhar pontos.</p>
-            </div>
-          )}
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30">
+                <p className="text-sm text-amber-300 text-center">⚠️ Nenhuma carteira vinculada</p>
+              </div>
 
-          {/* Adicionar MetaMask */}
-          {!citizen?.walletAddress && (
-            <div className="space-y-3">
-              <button
-                onClick={async () => {
-                  if (typeof window.ethereum !== 'undefined') {
+              {/* Detecção automática */}
+              {typeof window !== 'undefined' && (window as any).ethereum?.isMetaMask && (
+                <button
+                  onClick={async () => {
                     try {
-                      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                      const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
                       const wallet = accounts[0];
                       setLoading(true);
                       const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
@@ -1356,112 +1543,85 @@ export default function EcoSolidApp() {
                         body: JSON.stringify({ walletAddress: wallet, type: 'metamask' }),
                       });
                       const json = await res.json();
-                      if (json.success) {
-                        setCitizen(json.data);
-                      } else alert(json.error);
+                      if (json.success) setCitizen(json.data); else showToast(json.error, 'error');
                       setLoading(false);
-                    } catch { alert('Conexão com MetaMask cancelada.'); }
-                  } else {
-                    alert('MetaMask não detectado. Use a opção manual abaixo.');
-                  }
-                }}
-                disabled={loading}
-                className="w-full p-4 rounded-xl bg-orange-500/20 border border-orange-500/30 text-orange-400 font-bold hover:bg-orange-500/30 flex items-center justify-center gap-2"
-              >
-                <span className="text-xl">🦊</span> Conectar MetaMask
-              </button>
+                    } catch { showToast('Conexão cancelada', 'error'); }
+                  }}
+                  disabled={loading}
+                  className="w-full p-4 rounded-xl bg-orange-500/20 border border-orange-500/30 text-orange-400 font-bold hover:bg-orange-500/30 flex items-center gap-3"
+                ><span className="text-xl">🦊</span> Conectar MetaMask</button>
+              )}
 
-              {/* Inserir endereço manual */}
+              {typeof window !== 'undefined' && ((window as any).BinanceChain || (window as any).ethereum?.isBinance) && (
+                <button
+                  onClick={async () => {
+                    try {
+                      const provider = (window as any).BinanceChain || (window as any).ethereum;
+                      const accounts = await provider.request({ method: 'eth_requestAccounts' });
+                      const wallet = accounts[0];
+                      setLoading(true);
+                      const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ walletAddress: wallet, type: 'binance' }),
+                      });
+                      const json = await res.json();
+                      if (json.success) setCitizen(json.data); else showToast(json.error, 'error');
+                      setLoading(false);
+                    } catch { showToast('Conexão cancelada', 'error'); }
+                  }}
+                  disabled={loading}
+                  className="w-full p-4 rounded-xl bg-yellow-500/20 border border-yellow-500/30 text-yellow-400 font-bold hover:bg-yellow-500/30 flex items-center gap-3"
+                ><span className="text-xl">🟡</span> Conectar Binance Wallet</button>
+              )}
+
+              {/* Manual input */}
               <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-3">
-                <p className="text-xs text-slate-400 font-bold uppercase">Ou insira um endereço manual</p>
+                <p className="text-xs text-slate-400 font-bold uppercase">Ou insira manualmente</p>
                 <input
                   placeholder="0x..."
                   value={contasWalletInput}
                   onChange={e => setContasWalletInput(e.target.value)}
                   className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 font-mono text-sm"
                 />
-                <div className="flex gap-2">
-                  <button
-                    onClick={async () => {
-                      const addr = contasWalletInput.trim();
-                      if (!addr.startsWith('0x') || addr.length !== 42) { alert('Endereço inválido. Deve começar com 0x e ter 42 caracteres.'); return; }
-                      setLoading(true);
-                      const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ walletAddress: addr, type: 'manual' }),
-                      });
-                      const json = await res.json();
-                      if (json.success) setCitizen(json.data); else alert(json.error);
-                      setContasWalletInput('');
-                      setLoading(false);
-                    }}
-                    disabled={loading || !contasWalletInput.trim()}
-                    className="flex-1 p-3 rounded-xl bg-emerald-600 font-bold text-sm hover:bg-emerald-500 disabled:opacity-50"
-                  >
-                    💰 Vincular Binance
-                  </button>
-                  <button
-                    onClick={async () => {
-                      const addr = contasWalletInput.trim();
-                      if (!addr.startsWith('0x') || addr.length !== 42) { alert('Endereço inválido.'); return; }
-                      setLoading(true);
-                      const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ walletAddress: addr, type: 'manual' }),
-                      });
-                      const json = await res.json();
-                      if (json.success) setCitizen(json.data); else alert(json.error);
-                      setContasWalletInput('');
-                      setLoading(false);
-                    }}
-                    disabled={loading || !contasWalletInput.trim()}
-                    className="flex-1 p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600 disabled:opacity-50"
-                  >
-                    📋 Vincular Carteira
-                  </button>
+                <button
+                  onClick={async () => {
+                    const addr = contasWalletInput.trim();
+                    if (!addr.startsWith('0x') || addr.length !== 42) { showToast('Endereço inválido (0x... 42 caracteres)', 'error'); return; }
+                    setLoading(true);
+                    const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({ walletAddress: addr, type: 'manual' }),
+                    });
+                    const json = await res.json();
+                    if (json.success) setCitizen(json.data); else showToast(json.error, 'error');
+                    setContasWalletInput('');
+                    setLoading(false);
+                  }}
+                  disabled={loading || !contasWalletInput.trim()}
+                  className="w-full p-3 rounded-xl bg-emerald-600 font-bold text-sm hover:bg-emerald-500 disabled:opacity-50"
+                >✍️ Vincular Endereço</button>
+              </div>
+
+              {/* Não tenho carteira */}
+              <div className="p-4 rounded-xl bg-slate-800/30 border border-slate-700 space-y-3">
+                <p className="text-sm font-bold text-slate-300 text-center">📱 Não tenho carteira</p>
+                <div className="grid gap-2">
+                  <a href="https://metamask.io/download/" target="_blank" rel="noopener" className="block p-3 rounded-xl bg-orange-500/10 border border-orange-500/20 hover:bg-orange-500/20 transition-colors">
+                    <span className="font-bold text-orange-400">🦊 MetaMask</span>
+                    <p className="text-xs text-slate-400 mt-1">Extensão Chrome/Firefox + app mobile</p>
+                  </a>
+                  <a href="https://www.binance.com/pt-BR/web3wallet" target="_blank" rel="noopener" className="block p-3 rounded-xl bg-yellow-500/10 border border-yellow-500/20 hover:bg-yellow-500/20 transition-colors">
+                    <span className="font-bold text-yellow-400">🟡 Binance Web3</span>
+                    <p className="text-xs text-slate-400 mt-1">Integrado à Binance Exchange</p>
+                  </a>
+                  <a href="https://trustwallet.com" target="_blank" rel="noopener" className="block p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/20 transition-colors">
+                    <span className="font-bold text-blue-400">🔵 Trust Wallet</span>
+                    <p className="text-xs text-slate-400 mt-1">App mobile simples para iniciantes</p>
+                  </a>
                 </div>
-                <p className="text-xs text-slate-600 text-center">
-                  MetaMask, Binance Web3 Wallet, TrustWallet, Coinbase Wallet — qualquer EVM (0x...)
-                </p>
               </div>
             </div>
           )}
-
-          {citizen?.walletAddress && (
-            <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 space-y-3">
-              <p className="text-xs text-slate-400 font-bold uppercase">Trocar ou adicionar outra carteira</p>
-              <input
-                placeholder="Novo endereço 0x..."
-                value={contasWalletInput}
-                onChange={e => setContasWalletInput(e.target.value)}
-                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-emerald-500 font-mono text-sm"
-              />
-              <button
-                onClick={async () => {
-                  const addr = contasWalletInput.trim();
-                  if (!addr.startsWith('0x') || addr.length !== 42) { alert('Endereço inválido.'); return; }
-                  if (!citizen) return;
-                  setLoading(true);
-                  const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
-                    method: 'PATCH',
-                    body: JSON.stringify({ walletAddress: addr, type: 'manual' }),
-                  });
-                  const json = await res.json();
-                  if (json.success) setCitizen(json.data); else alert(json.error);
-                  setContasWalletInput('');
-                  setLoading(false);
-                }}
-                disabled={loading || !contasWalletInput.trim()}
-                className="w-full p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600 disabled:opacity-50"
-              >
-                Atualizar Carteira
-              </button>
-            </div>
-          )}
-
-          <p className="text-xs text-slate-600 text-center pt-4">
-            As carteiras são usadas para receber tokens SOLID e transacionar na blockchain.
-          </p>
         </main>
       )}
 
@@ -1504,6 +1664,48 @@ export default function EcoSolidApp() {
               </div>
             )}
           </div>
+
+          {/* WhatsApp CallMeBot */}
+          <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/30 space-y-3">
+            <h3 className="text-sm font-bold text-green-400">📱 Alertas WhatsApp</h3>
+            <p className="text-xs text-slate-400">
+              Para receber alertas urgentes no WhatsApp gratuitamente: envie a mensagem <code className="text-emerald-400 bg-slate-800 px-1 rounded">I allow callmebot to send me messages</code> para o número <strong className="text-white">+34 644 61 85 35</strong> no WhatsApp. Após enviar, você receberá sua API Key. Cole ela abaixo.
+            </p>
+            <input
+              placeholder="Sua API Key do CallMeBot..."
+              value={whatsappApiKeyInput}
+              onChange={e => setWhatsappApiKeyInput(e.target.value)}
+              className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-green-500 text-sm"
+            />
+            <button
+              onClick={async () => {
+                const key = whatsappApiKeyInput.trim();
+                if (!key) { showToast('Cole sua API Key', 'error'); return; }
+                setLoading(true);
+                const res = await apiFetch(`/citizens/${citizen.id}`, {
+                  method: 'PATCH',
+                  body: JSON.stringify({ whatsappApiKey: key }),
+                });
+                const json = await res.json();
+                if (json.success) {
+                  setCitizen(json.data);
+                  setWhatsappApiKeyInput('');
+                  showToast('WhatsApp ativado com sucesso! ✓', 'success');
+                } else showToast(json.error, 'error');
+                setLoading(false);
+              }}
+              disabled={loading}
+              className="w-full p-3 rounded-xl bg-green-600 font-bold text-sm hover:bg-green-500 disabled:opacity-50"
+            >Salvar</button>
+            {citizen?.whatsappApiKey && (
+              <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/20">
+                <span className="text-green-400 text-sm font-bold">✅ WhatsApp ativado</span>
+              </div>
+            )}
+          </div>
+
+          {/* Próximo Agendamento */}
+          <AppointmentCard citizenId={citizen?.id} />
         </main>
       )}
 
@@ -1532,6 +1734,16 @@ export default function EcoSolidApp() {
               <h2 className="text-5xl font-black">{citizen.totalPoints}</h2>
               <span className="text-emerald-400 font-bold mb-1">SOLID</span>
             </div>
+            {/* SOLID Pendente */}
+            {(() => {
+              const pendingPoints = txHistory
+                .filter((tx: any) => tx.status === 'PENDENTE_VALIDACAO')
+                .reduce((sum: number, tx: any) => sum + (tx.pointsEarned || 0), 0);
+              if (pendingPoints > 0) return (
+                <p className="text-xs text-yellow-400 mt-1 mb-2">🟡 {pendingPoints} SOLID pendentes de validação</p>
+              );
+              return null;
+            })()}
             {(() => {
               const level = getLevel(citizen.totalPoints || 0);
               const prog = level.next === Infinity ? 100 : Math.max(2, ((citizen.totalPoints - level.min) / (level.next - level.min)) * 100);
@@ -1588,7 +1800,16 @@ export default function EcoSolidApp() {
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex gap-2">
                         <span className="text-2xl">{tx.icon}</span>
-                        <div><p className="font-bold text-sm">{tx.title}</p><p className="text-xs text-slate-400">{tx.date}</p></div>
+                        <div><p className="font-bold text-sm">{tx.title}</p><p className="text-xs text-slate-400">{tx.date} <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+  tx.status === 'PENDENTE_VALIDACAO' ? 'bg-yellow-500/20 text-yellow-400' :
+  tx.status === 'VALIDADO' ? 'bg-green-500/20 text-green-400' :
+  tx.status === 'REJEITADO' ? 'bg-red-500/20 text-red-400' :
+  'bg-slate-500/20 text-slate-400'
+}`}>
+  {tx.status === 'PENDENTE_VALIDACAO' ? ' Aguardando' :
+   tx.status === 'VALIDADO' ? ' Validado' :
+   tx.status === 'REJEITADO' ? ' Rejeitado' : ' Registrado'}
+</span></p></div>
                       </div>
                       <span className="text-emerald-400 font-bold">{tx.points}</span>
                     </div>

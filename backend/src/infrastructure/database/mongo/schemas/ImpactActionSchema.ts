@@ -13,6 +13,7 @@ export const ImpactActionSchema = new Schema({
   locationAddress: { type: String }, // Endereço legível (geocodificação reversa)
   bloodType: { type: String }, // Tipo sanguíneo do doador (ações de doação)
   txHash: { type: String }, // Hash da transação blockchain
+  status: { type: String, enum: ['PENDENTE_VALIDACAO', 'VALIDADO', 'REJEITADO'], default: 'PENDENTE_VALIDACAO' },
   timestamp: { type: Date, default: Date.now },
 });
 
@@ -28,5 +29,6 @@ export interface ImpactActionDocument extends Omit<Document, '_id'> {
   locationAddress?: string;
   bloodType?: string;
   txHash?: string;
+  status?: string;
   timestamp: Date;
 }

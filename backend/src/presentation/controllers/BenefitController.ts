@@ -6,6 +6,7 @@ import { Model } from 'mongoose';
 export class BenefitController {
   constructor(
     @InjectModel('BenefitRedemption') private readonly redemptionModel: Model<any>,
+    @InjectModel('Citizen') private readonly citizenModel: Model<any>,
   ) {}
 
   @Post('redeem')
@@ -27,7 +28,7 @@ export class BenefitController {
         maintenanceFee,
         benefitDescription: body.benefitDescription,
         code,
-        status: 'pending',
+        status: 'PENDENTE',
       });
 
       return {
@@ -39,10 +40,10 @@ export class BenefitController {
           benefitDescription: body.benefitDescription,
           solidCost: body.solidCost,
           maintenanceFee,
-          status: 'pending',
+          status: 'PENDENTE',
           createdAt: redemption.createdAt,
         },
-        message: 'Benefício resgatado com sucesso!',
+        message: 'Benefício resgatado! Aguardando validação do parceiro.',
       };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -55,11 +56,32 @@ export class BenefitController {
       const redemption = await this.redemptionModel.findOne({ code: body.code.toUpperCase() });
       if (!redemption) return { success: false, error: 'Código não encontrado' };
 
-      if (redemption.status === 'validated' || redemption.status === 'used') {
-        return { success: false, error: 'Este código já foi validado/ usado' };
+      if (redemption.status === 'CONFIRMADO' || redemption.status === 'validated' || redemption.status === 'used') {
+        return { success: false, error: 'Este código já foi utilizado' };
       }
 
-      redemption.status = 'validated';
+      // Verificar expiração (30 min)
+      const age = Date.now() - new Date(redemption.createdAt).getTime();
+      if (age > 30 * 60 * 1000) {
+        redemption.status = 'EXPIRADO';
+        await redemption.save();
+        return { success: false, error: 'Este código expirou (30 minutos)' };
+      }
+
+      // Debitar SOLID do cidadão
+      const citizen = await this.citizenModel.findById(redemption.citizenId);
+      if (citizen) {
+        citizen.totalPoints = Math.max(0, (citizen.totalPoints || 0) - redemption.solidCost);
+        // Recalcular nível
+        if (citizen.totalPoints >= 3000) citizen.level = 'FOREST';
+        else if (citizen.totalPoints >= 1000) citizen.level = 'TREE';
+        else if (citizen.totalPoints >= 500) citizen.level = 'SPROUT';
+        else if (citizen.totalPoints >= 100) citizen.level = 'SEED';
+        else citizen.level = 'SEED';
+        await citizen.save();
+      }
+
+      redemption.status = 'CONFIRMADO';
       redemption.validatedAt = new Date();
       await redemption.save();
 
@@ -71,9 +93,62 @@ export class BenefitController {
           benefitDescription: redemption.benefitDescription,
           solidCost: redemption.solidCost,
           validatedAt: redemption.validatedAt,
+          status: 'CONFIRMADO',
         },
-        message: `Resgate de ${redemption.solidCost} SOLID validado com sucesso!`,
+        message: `Resgate de ${redemption.solidCost} SOLID confirmado!`,
       };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  @Post(':id/confirm')
+  async confirmRedemption(
+    @Param('id') id: string,
+    @Body() body: { partnerName: string },
+  ) {
+    try {
+      const redemption = await this.redemptionModel.findById(id);
+      if (!redemption) return { success: false, error: 'Resgate não encontrado' };
+      if (redemption.status === 'CONFIRMADO') return { success: false, error: 'Já confirmado' };
+
+      const age = Date.now() - new Date(redemption.createdAt).getTime();
+      if (age > 30 * 60 * 1000) {
+        redemption.status = 'EXPIRADO';
+        await redemption.save();
+        return { success: false, error: 'Resgate expirado (30 minutos)' };
+      }
+
+      const citizen = await this.citizenModel.findById(redemption.citizenId);
+      if (citizen) {
+        citizen.totalPoints = Math.max(0, (citizen.totalPoints || 0) - redemption.solidCost);
+        if (citizen.totalPoints >= 3000) citizen.level = 'FOREST';
+        else if (citizen.totalPoints >= 1000) citizen.level = 'TREE';
+        else if (citizen.totalPoints >= 500) citizen.level = 'SPROUT';
+        else if (citizen.totalPoints >= 100) citizen.level = 'SEED';
+        else citizen.level = 'SEED';
+        await citizen.save();
+      }
+
+      redemption.status = 'CONFIRMADO';
+      redemption.validatedAt = new Date();
+      await redemption.save();
+
+      return { success: true, data: redemption, message: 'Resgate confirmado!' };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  @Get('pending')
+  async getPending() {
+    try {
+      const redemptions = await this.redemptionModel
+        .find({ status: 'PENDENTE' })
+        .sort({ createdAt: -1 })
+        .lean()
+        .exec();
+      return { success: true, data: redemptions };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

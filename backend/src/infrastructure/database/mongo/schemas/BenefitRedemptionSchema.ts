@@ -8,7 +8,8 @@ export const BenefitRedemptionSchema = new Schema({
   maintenanceFee: { type: Number, default: 0 },
   benefitDescription: { type: String, required: true },
   code: { type: String, required: true, unique: true },
-  status: { type: String, enum: ['pending', 'validated', 'used', 'expired'], default: 'pending' },
+  status: { type: String, enum: ['PENDENTE', 'CONFIRMADO', 'EXPIRADO', 'pending', 'validated', 'used', 'expired'], default: 'PENDENTE' },
   validatedAt: { type: Date },
+  txHash: { type: String },
   createdAt: { type: Date, default: Date.now },
 });

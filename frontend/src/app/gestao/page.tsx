@@ -26,7 +26,33 @@ export default function GestaoPage() {
 
   const [loading, setLoading] = useState(false);
 
+  // Doadores por tipo
+  const [donorBloodType, setDonorBloodType] = useState('');
+  const [donors, setDonors] = useState<any[]>([]);
+  // Modal Agendar
+  const [scheduleModal, setScheduleModal] = useState<{ citizenId: string; citizenName: string } | null>(null);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('08:00');
+  const [scheduleNotes, setScheduleNotes] = useState('');
+  // Agendamentos
+  const [appointments, setAppointments] = useState<any[]>([]);
+  // Ações pendentes (parceiro/admin)
+  const [pendingActions, setPendingActions] = useState<any[]>([]);
+  const [pendingRedemptions, setPendingRedemptions] = useState<any[]>([]);
+
   const apiFetch = (url: string, opts?: RequestInit) => fetch(`${API}${url}`, opts);
+
+  // Haversine distance
+  const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  };
+
+  const HEMOSANGUE_LAT = -3.7706;
+  const HEMOSANGUE_LNG = -38.5590;
 
   // Fetch de dados admin
   const fetchAdminData = async (key: string) => {
@@ -286,19 +312,159 @@ export default function GestaoPage() {
                 onChange={e => setAlertForm({ ...alertForm, message: e.target.value })}
                 className="w-full p-3 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-red-500" />
               <button type="submit" disabled={loading}
-                className="w-full p-3 rounded-xl bg-red-500 font-bold hover:bg-red-400">🚨 Disparar Alerta + Push Notifications</button>
+                className="w-full p-3 rounded-xl bg-red-500 font-bold hover:bg-red-400">🚨 Disparar Alerta + Push + WhatsApp</button>
             </form>
-            {/* Tipos raros */}
-            <div className="p-4 rounded-xl bg-white/5 border border-white/10">
-              <p className="font-bold text-sm mb-3">🩸 Doadores por Tipo</p>
-              <div className="space-y-1">
-                {bloodStats.map((s: any) => (
-                  <div key={s._id} className="flex justify-between text-sm py-1 border-b border-white/5">
-                    <span className="font-mono font-bold">{s._id}</span>
-                    <span className="text-slate-400">{s.count} doadores</span>
-                  </div>
-                ))}
+
+            {/* Doadores por Tipo com Distância */}
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-4">
+              <p className="font-bold text-sm">📍 Doadores por Tipo</p>
+              <select value={donorBloodType}
+                onChange={async e => {
+                  const type = e.target.value;
+                  setDonorBloodType(type);
+                  if (!type) { setDonors([]); return; }
+                  try {
+                    const res = await fetch(`${API}/citizens/blood-type/${type}`);
+                    const json = await res.json();
+                    if (json?.success) setDonors(json.data || []);
+                  } catch {}
+                }}
+                className="w-full p-3 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-red-500 text-slate-400">
+                <option value="">Selecione o tipo sanguíneo...</option>
+                {['A+','A-','B+','B-','AB+','AB-','O+','O-'].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              {donors.length > 0 && (
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {donors
+                    .map((d: any) => {
+                      const dist = d.latitude && d.longitude ? haversineKm(d.latitude, d.longitude, HEMOSANGUE_LAT, HEMOSANGUE_LNG) : Infinity;
+                      return { ...d, _dist: dist };
+                    })
+                    .sort((a: any, b: any) => a._dist - b._dist)
+                    .map((d: any) => (
+                      <div key={d._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-1">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-bold text-sm">{d.name}</p>
+                            <p className="text-xs text-slate-400">{d.phone || 'Sem telefone'} | {d.address || 'Sem endereço'}</p>
+                            <p className="text-xs font-mono text-red-400">🩸 {d.bloodType}</p>
+                          </div>
+                          <span className="text-xs font-bold text-emerald-400">
+                            {d._dist === Infinity ? '—' : `${d._dist.toFixed(1)} km do HemoSangue CE`}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => setScheduleModal({ citizenId: d._id, citizenName: d.name })}
+                          className="text-xs text-cyan-400 hover:text-cyan-300 font-bold underline"
+                        >📅 Agendar Coleta</button>
+                      </div>
+                    ))}
+                </div>
+              )}
+              {donorBloodType && donors.length === 0 && (
+                <p className="text-xs text-slate-500">Nenhum doador encontrado com tipo {donorBloodType}.</p>
+              )}
+            </div>
+
+            {/* Agendamentos */}
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
+              <div className="flex justify-between items-center">
+                <p className="font-bold text-sm">📋 Agendamentos</p>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`${API}/appointments`);
+                      const json = await res.json();
+                      if (json?.success) setAppointments(json.data || []);
+                    } catch {}
+                  }}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 underline"
+                >Atualizar</button>
               </div>
+              {appointments.length === 0 && <p className="text-xs text-slate-500">Nenhum agendamento. Use a seção Doadores por Tipo para agendar.</p>}
+              {appointments.map((a: any) => (
+                <div key={a._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 flex justify-between items-center">
+                  <div>
+                    <p className="font-bold text-sm">{a.citizenName}</p>
+                    <p className="text-xs text-slate-400">{a.date} às {a.time} — {a.location}</p>
+                    {a.notes && <p className="text-xs text-slate-500">{a.notes}</p>}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                      a.status === 'confirmado' ? 'bg-green-500/20 text-green-400' :
+                      a.status === 'realizado' ? 'bg-emerald-500/20 text-emerald-400' :
+                      a.status === 'cancelado' ? 'bg-red-500/20 text-red-400' :
+                      'bg-blue-500/20 text-blue-400'
+                    }`}>{a.status}</span>
+                  </div>
+                  <div className="flex gap-1">
+                    {a.status === 'agendado' && (
+                      <button onClick={async () => {
+                        await fetch(`${API}/appointments/${a._id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'confirmado' }) });
+                        setAppointments(prev => prev.map(x => x._id === a._id ? { ...x, status: 'confirmado' } : x));
+                      }} className="text-xs px-2 py-1 rounded bg-green-600 font-bold hover:bg-green-500">Confirmar</button>
+                    )}
+                    {(a.status === 'agendado' || a.status === 'confirmado') && (
+                      <button onClick={async () => {
+                        await fetch(`${API}/appointments/${a._id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'realizado' }) });
+                        setAppointments(prev => prev.map(x => x._id === a._id ? { ...x, status: 'realizado' } : x));
+                      }} className="text-xs px-2 py-1 rounded bg-emerald-600 font-bold hover:bg-emerald-500">Realizado</button>
+                    )}
+                    {a.status !== 'cancelado' && a.status !== 'realizado' && (
+                      <button onClick={async () => {
+                        await fetch(`${API}/appointments/${a._id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'cancelado' }) });
+                        setAppointments(prev => prev.map(x => x._id === a._id ? { ...x, status: 'cancelado' } : x));
+                      }} className="text-xs px-2 py-1 rounded bg-red-600 font-bold hover:bg-red-500">Cancelar</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Modal Agendar Coleta */}
+        {scheduleModal && (
+          <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setScheduleModal(null)}>
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
+              <h3 className="text-lg font-bold">📅 Agendar Coleta — {scheduleModal.citizenName}</h3>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Data</label>
+                <input type="date" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-emerald-500" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Horário</label>
+                <select value={scheduleTime} onChange={e => setScheduleTime(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-emerald-500 text-slate-400">
+                  {['07:00','08:00','09:00','10:00','11:00','13:00','14:00','15:00','16:00'].map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Observações</label>
+                <textarea value={scheduleNotes} onChange={e => setScheduleNotes(e.target.value)} rows={3}
+                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-emerald-500 resize-none" />
+              </div>
+              <button
+                onClick={async () => {
+                  if (!scheduleDate) { alert('Selecione a data'); return; }
+                  setLoading(true);
+                  const res = await fetch(`${API}/appointments`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ citizenId: scheduleModal.citizenId, citizenName: scheduleModal.citizenName, date: scheduleDate, time: scheduleTime, notes: scheduleNotes, location: 'HemoSangue CE' }),
+                  });
+                  const json = await res.json();
+                  if (json.success) {
+                    setAppointments(prev => [json.data, ...prev]);
+                    setScheduleModal(null);
+                    setScheduleDate('');
+                    setScheduleNotes('');
+                    alert('Agendamento criado com sucesso!');
+                  } else alert(json.error);
+                  setLoading(false);
+                }}
+                disabled={loading}
+                className="w-full p-3 rounded-xl bg-emerald-600 font-bold hover:bg-emerald-500 disabled:opacity-50"
+              >Confirmar Agendamento</button>
+              <button onClick={() => setScheduleModal(null)} className="w-full p-3 rounded-xl bg-slate-700 font-bold hover:bg-slate-600">Cancelar</button>
             </div>
           </div>
         )}
@@ -328,19 +494,100 @@ export default function GestaoPage() {
 
         {/* ADMIN: Resgates */}
         {role === 'admin' && tab === 'redemptions' && (
-          <div className="space-y-4">
-            <h1 className="text-2xl font-black">🎁 Resgates</h1>
+          <div className="space-y-6">
+            <h1 className="text-2xl font-black">🎁 Resgates & Validações</h1>
+
+            {/* Ações pendentes de validação */}
+            <div className="p-4 rounded-xl bg-yellow-500/5 border border-yellow-500/20 space-y-3">
+              <div className="flex justify-between items-center">
+                <p className="font-bold text-sm text-yellow-400">⏳ Ações Pendentes de Validação</p>
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch(`${API}/impact/pending`);
+                      const json = await res.json();
+                      if (json?.success) setPendingActions(json.data || []);
+                    } catch {}
+                  }}
+                  className="text-xs text-cyan-400 hover:text-cyan-300 underline"
+                >Atualizar</button>
+              </div>
+              {pendingActions.length === 0 && <p className="text-xs text-slate-500">Nenhuma ação pendente de validação.</p>}
+              {pendingActions.map((a: any) => (
+                <div key={a._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-2">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-bold text-sm">{a.citizenId}</p>
+                      <p className="text-xs text-slate-400">{a.actionType} — +{a.pointsEarned} SOLID</p>
+                      <p className="text-xs text-slate-500">{new Date(a.timestamp).toLocaleString('pt-BR')}</p>
+                      {a.evidenceUrl && a.evidenceUrl !== 'sem-foto' && (
+                        <img src={a.evidenceUrl} alt="Evidência" className="mt-2 w-20 h-20 object-cover rounded-lg border border-slate-600" />
+                      )}
+                      {a.latitude && a.longitude && (
+                        <a href={`https://www.google.com/maps?q=${a.latitude},${a.longitude}`} target="_blank" rel="noopener"
+                          className="text-xs text-cyan-400 hover:text-cyan-300 underline block mt-1">📍 Ver local no Google Maps</a>
+                      )}
+                    </div>
+                    <span className="text-xs px-2 py-1 rounded-full font-bold bg-yellow-500/20 text-yellow-400">🟡 Pendente</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        setLoading(true);
+                        const res = await fetch(`${API}/impact/${a._id}/validate`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'x-partner-code': 'ADMIN' },
+                        });
+                        const json = await res.json();
+                        if (json.success) {
+                          setPendingActions(prev => prev.filter(x => x._id !== a._id));
+                          alert('Ação validada com sucesso!');
+                        } else alert(json.error);
+                        setLoading(false);
+                      }}
+                      disabled={loading}
+                      className="text-xs px-3 py-1 rounded-lg bg-green-600 font-bold hover:bg-green-500"
+                    >Validar ✓</button>
+                    <button
+                      onClick={async () => {
+                        setLoading(true);
+                        const res = await fetch(`${API}/impact/${a._id}/reject`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'x-partner-code': 'ADMIN' },
+                        });
+                        const json = await res.json();
+                        if (json.success) {
+                          setPendingActions(prev => prev.filter(x => x._id !== a._id));
+                          alert('Ação rejeitada.');
+                        } else alert(json.error);
+                        setLoading(false);
+                      }}
+                      disabled={loading}
+                      className="text-xs px-3 py-1 rounded-lg bg-red-600 font-bold hover:bg-red-500"
+                    >Rejeitar ✗</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Resgates */}
+            <h2 className="text-lg font-bold mt-6">Histórico de Resgates</h2>
             {allRedemptions.map((r: any) => (
               <div key={r._id} className="p-3 rounded-xl bg-white/5 border border-white/10 flex justify-between text-sm">
                 <div>
                   <p className="font-mono font-bold">{r.code}</p>
                   <p className="text-xs text-slate-400">{r.partnerName} | {r.benefitDescription} | {r.solidCost} SOLID | Taxa: {r.maintenanceFee || 0}</p>
                 </div>
-                <span className={`font-bold ${r.status === 'validated' ? 'text-emerald-400' : 'text-amber-400'}`}>{r.status}</span>
+                <span className={`font-bold text-xs ${r.status === 'CONFIRMADO' || r.status === 'validated' ? 'text-emerald-400' : r.status === 'EXPIRADO' ? 'text-red-400' : 'text-amber-400'}`}>{r.status}</span>
               </div>
             ))}
           </div>
         )}
+
+        {/* Polling de ações pendentes */}
+        <PollingActions onUpdate={setPendingActions} active={role === 'admin' && tab === 'redemptions'} api={API} />
+        <PollingActions onUpdate={setPendingActions} active={role === 'partner' && tab === 'redeem'} api={API} />
+        <PollingRedemptions onUpdate={setPendingRedemptions} active={role === 'partner' && tab === 'redeem'} api={API} />
 
         {/* ADMIN: Relatórios */}
         {role === 'admin' && tab === 'reports' && (
@@ -364,16 +611,121 @@ export default function GestaoPage() {
         {/* PARTNER: Resgates */}
         {role === 'partner' && tab === 'redeem' && (
           <div className="space-y-6">
-            <h1 className="text-2xl font-black">🎁 Validar Resgate</h1>
-            <div className="flex gap-2">
-              <input placeholder="Código 8 dígitos" id="partnerCode"
-                className="flex-1 p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500 font-mono text-lg tracking-widest text-center"
-                maxLength={8} />
-              <button onClick={() => handleValidateCode((document.getElementById('partnerCode') as HTMLInputElement)?.value)}
-                disabled={loading}
-                className="px-6 py-4 rounded-xl bg-emerald-500 font-bold hover:bg-emerald-400">Validar</button>
+            <h1 className="text-2xl font-black">🎁 Validações & Resgates</h1>
+
+            {/* Validar código de resgate */}
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
+              <p className="font-bold text-sm">Validar Código de Resgate</p>
+              <div className="flex gap-2">
+                <input placeholder="Código 8 dígitos" id="partnerCode"
+                  className="flex-1 p-4 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-emerald-500 font-mono text-lg tracking-widest text-center"
+                  maxLength={8} />
+                <button onClick={() => handleValidateCode((document.getElementById('partnerCode') as HTMLInputElement)?.value)}
+                  disabled={loading}
+                  className="px-6 py-4 rounded-xl bg-emerald-500 font-bold hover:bg-emerald-400">Validar</button>
+              </div>
+              <p className="text-xs text-slate-500">Ou escaneie o QR Code do cliente</p>
             </div>
-            <p className="text-xs text-slate-500">Ou escaneie o QR Code do cliente</p>
+
+            {/* Ações pendentes de validação */}
+            <div className="p-4 rounded-xl bg-yellow-500/5 border border-yellow-500/20 space-y-3">
+              <div className="flex justify-between items-center">
+                <p className="font-bold text-sm text-yellow-400">⏳ Ações Pendentes de Validação (tempo real)</p>
+                <span className="text-xs text-slate-500">Atualiza a cada 10s</span>
+              </div>
+              {pendingActions.length === 0 && <p className="text-xs text-slate-500">Nenhuma ação pendente.</p>}
+              {pendingActions.map((a: any) => (
+                <div key={a._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-2">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-bold text-sm">{a.citizenId}</p>
+                      <p className="text-xs text-slate-400">{a.actionType} — +{a.pointsEarned} SOLID</p>
+                      <p className="text-xs text-slate-500">{new Date(a.timestamp).toLocaleString('pt-BR')}</p>
+                      {a.evidenceUrl && a.evidenceUrl !== 'sem-foto' && (
+                        <img src={a.evidenceUrl} alt="Evidência" className="mt-2 w-20 h-20 object-cover rounded-lg border border-slate-600" />
+                      )}
+                      {a.latitude && a.longitude && (
+                        <a href={`https://www.google.com/maps?q=${a.latitude},${a.longitude}`} target="_blank" rel="noopener"
+                          className="text-xs text-cyan-400 hover:text-cyan-300 underline block mt-1">📍 Local no Google Maps</a>
+                      )}
+                    </div>
+                    <span className="text-xs px-2 py-1 rounded-full font-bold bg-yellow-500/20 text-yellow-400">🟡 P</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        setLoading(true);
+                        const res = await fetch(`${API}/impact/${a._id}/validate`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'x-partner-code': partnerName },
+                        });
+                        const json = await res.json();
+                        if (json.success) {
+                          setPendingActions(prev => prev.filter(x => x._id !== a._id));
+                          alert('Ação validada + Blockchain!');
+                        } else alert(json.error);
+                        setLoading(false);
+                      }}
+                      disabled={loading}
+                      className="text-xs px-3 py-1 rounded-lg bg-green-600 font-bold hover:bg-green-500"
+                    >Validar ✓</button>
+                    <button
+                      onClick={async () => {
+                        setLoading(true);
+                        const res = await fetch(`${API}/impact/${a._id}/reject`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', 'x-partner-code': partnerName },
+                        });
+                        const json = await res.json();
+                        if (json.success) {
+                          setPendingActions(prev => prev.filter(x => x._id !== a._id));
+                          alert('Ação rejeitada.');
+                        } else alert(json.error);
+                        setLoading(false);
+                      }}
+                      disabled={loading}
+                      className="text-xs px-3 py-1 rounded-lg bg-red-600 font-bold hover:bg-red-500"
+                    >Rejeitar ✗</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Resgates pendentes */}
+            <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-3">
+              <div className="flex justify-between items-center">
+                <p className="font-bold text-sm text-blue-400">🎫 Resgates Pendentes (tempo real)</p>
+                <span className="text-xs text-slate-500">Atualiza a cada 5s</span>
+              </div>
+              {pendingRedemptions.length === 0 && <p className="text-xs text-slate-500">Nenhum resgate pendente.</p>}
+              {pendingRedemptions.map((r: any) => (
+                <div key={r._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 flex justify-between items-center">
+                  <div>
+                    <p className="font-mono font-bold">{r.code}</p>
+                    <p className="text-xs text-slate-400">{r.benefitDescription} — {r.solidCost} SOLID</p>
+                    <p className="text-xs text-slate-500">Cidadão: {r.citizenId}</p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setLoading(true);
+                      const res = await fetch(`${API}/benefits/${r._id}/confirm`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ partnerName }),
+                      });
+                      const json = await res.json();
+                      if (json.success) {
+                        setPendingRedemptions(prev => prev.filter(x => x._id !== r._id));
+                        alert(`${r.solidCost} SOLID debitados. Resgate confirmado!`);
+                      } else alert(json.error);
+                      setLoading(false);
+                    }}
+                    disabled={loading}
+                    className="text-xs px-3 py-1 rounded-lg bg-green-600 font-bold hover:bg-green-500"
+                  >Confirmar Resgate</button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -430,4 +782,39 @@ function Card({ title, val, icon, c }: any) {
       <p className="text-xl font-black mt-1">{val}</p>
     </div>
   );
+}
+
+// Polling helpers
+function PollingActions({ onUpdate, active, api }: { onUpdate: (d: any[]) => void; active: boolean; api: string }) {
+  useEffect(() => {
+    if (!active) return;
+    const fetchPending = async () => {
+      try {
+        const res = await fetch(`${api}/impact/pending`);
+        const json = await res.json();
+        if (json?.success) onUpdate(json.data || []);
+      } catch {}
+    };
+    fetchPending();
+    const interval = setInterval(fetchPending, 10000);
+    return () => clearInterval(interval);
+  }, [active, api]);
+  return null;
+}
+
+function PollingRedemptions({ onUpdate, active, api }: { onUpdate: (d: any[]) => void; active: boolean; api: string }) {
+  useEffect(() => {
+    if (!active) return;
+    const fetchPending = async () => {
+      try {
+        const res = await fetch(`${api}/benefits/pending`);
+        const json = await res.json();
+        if (json?.success) onUpdate(json.data || []);
+      } catch {}
+    };
+    fetchPending();
+    const interval = setInterval(fetchPending, 5000);
+    return () => clearInterval(interval);
+  }, [active, api]);
+  return null;
 }
