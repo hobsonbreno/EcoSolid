@@ -120,6 +120,7 @@ export default function GestaoPage() {
         if (json.success) {
           setRole('admin');
           setAuthKey(authKey);
+          localStorage.setItem('gestao_admin_key', authKey);
           fetchAdminData(authKey);
         } else if (partnerName.trim() || authKey.trim().length === 8) {
           // Try partner code login
@@ -137,6 +138,7 @@ export default function GestaoPage() {
                 localStorage.setItem('gestao_partner_name', p.nomeFantasia);
                 localStorage.setItem('gestao_partner_segmento', p.segmento);
                 localStorage.setItem('gestao_partner_orgao', p.razaoSocial || p.nomeFantasia);
+                localStorage.setItem('gestao_partner_code', code);
                 setRole('partner');
                 setPartnerName(p.nomeFantasia);
                 // Fetch segment pending redemptions immediately
@@ -155,6 +157,7 @@ export default function GestaoPage() {
                   localStorage.setItem('gestao_partner_name', legacyData.nomeFantasia);
                   localStorage.setItem('gestao_partner_segmento', 'Outro');
                   localStorage.setItem('gestao_partner_orgao', legacyData.razaoSocial);
+                  localStorage.setItem('gestao_partner_code', code);
                   setRole('partner');
                   setPartnerName(legacyData.nomeFantasia);
                   fetch(`${API}/benefits/pending`).then(r => r.json()).then(j => {
@@ -180,6 +183,8 @@ export default function GestaoPage() {
     localStorage.removeItem('gestao_partner_id');
     localStorage.removeItem('gestao_partner_name');
     localStorage.removeItem('gestao_partner_segmento');
+    localStorage.removeItem('gestao_partner_code');
+    localStorage.removeItem('gestao_admin_key');
     setSidebarOpen(false);
   };
 
@@ -234,6 +239,79 @@ export default function GestaoPage() {
     }
   }, [role, tab]);
 
+  // Auto-load histórico do parceiro
+  useEffect(() => {
+    if (role !== 'partner' || tab !== 'historia') return;
+    const seg = partnerData?.segmento || '';
+    if (!seg) return;
+    const url = `${API}/benefits/partner-segment/${encodeURIComponent(seg)}?status=CONFIRMADO`;
+    fetch(url).then(r => r.json()).then(json => {
+      if (json.success) setHistoriaResgates(json.data);
+    }).catch(() => {});
+  }, [role, tab, partnerData?.segmento]);
+
+  // Auto-load desempenho do parceiro
+  useEffect(() => {
+    if (role !== 'partner' || tab !== 'performance') return;
+    const seg = partnerData?.segmento || '';
+    if (!seg) return;
+    // Busca todos (sem filtro de status) para calcular totais
+    const url = `${API}/benefits/partner-segment/${encodeURIComponent(seg)}`;
+    fetch(url).then(r => r.json()).then(json => {
+      if (json.success) {
+        const redemptions = json.data || [];
+        setPartnerRedemptions(redemptions);
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const todayCount = redemptions.filter((r: any) => new Date(r.createdAt) >= today).length;
+        const monthCount = redemptions.filter((r: any) => new Date(r.createdAt) >= startOfMonth).length;
+        setPartnerStats({ today: todayCount, month: monthCount, total: redemptions.length });
+      }
+    }).catch(() => {});
+  }, [role, tab, partnerData?.segmento]);
+
+  // Restaurar sessão ao carregar a página
+  useEffect(() => {
+    if (role) return; // já autenticado
+    const savedAdminKey = localStorage.getItem('gestao_admin_key');
+    if (savedAdminKey) {
+      fetch(`${API}/admin/metrics`, { headers: { 'x-admin-key': savedAdminKey } })
+        .then(r => r.json())
+        .then(json => {
+          if (json.success) {
+            setRole('admin');
+            setAuthKey(savedAdminKey);
+            fetchAdminData(savedAdminKey);
+          } else {
+            localStorage.removeItem('gestao_admin_key');
+          }
+        })
+        .catch(() => {});
+    } else {
+      const savedPartnerCode = localStorage.getItem('gestao_partner_code');
+      if (savedPartnerCode) {
+        fetch(`${API}/partners/by-code/${savedPartnerCode}`)
+          .then(r => r.json())
+          .then(json => {
+            if (json.success && json.data.ativo) {
+              const p = json.data;
+              setPartnerData(p);
+              setRole('partner');
+              setPartnerName(p.nomeFantasia);
+              setAuthKey(savedPartnerCode);
+              fetch(`${API}/benefits/pending?segment=${encodeURIComponent(p.segmento)}`).then(r => r.json()).then(j => {
+                if (j.success) setPendingRedemptions(j.data);
+              });
+            } else {
+              // Limpa localStorage se parceiro inválido
+              ['gestao_partner_id','gestao_partner_name','gestao_partner_segmento','gestao_partner_code'].forEach(k => localStorage.removeItem(k));
+            }
+          })
+          .catch(() => {});
+      }
+    }
+  }, []);
+
   if (!role) {
     return (
       <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
@@ -286,6 +364,9 @@ export default function GestaoPage() {
               <div>
                 <p className="font-black text-lg">EcoSolid</p>
                 <p className="text-xs text-slate-500">{role === 'admin' ? 'Administrador' : partnerName}</p>
+                {role === 'partner' && partnerData && (
+                  <p className="text-xs text-slate-600">{partnerData.segmento}{partnerData.municipio ? ` \u00b7 ${partnerData.municipio}` : ''}</p>
+                )}
               </div>
             </div>
           </div>
@@ -978,18 +1059,8 @@ export default function GestaoPage() {
           <div className="space-y-4">
             <h1 className="text-2xl font-black">📋 Histórico de Resgates</h1>
             <p className="text-sm text-slate-400">{partnerData?.nomeFantasia} &middot; {partnerData?.segmento}</p>
-            <button onClick={async () => {
-              const seg = partnerData?.segmento || '';
-              if (!seg) return;
-              const url = `${API}/benefits/partner-segment/${encodeURIComponent(seg)}?status=CONFIRMADO`;
-              console.log('[Historia] Buscando:', url, 'Segmento:', seg);
-              const res = await fetch(url);
-              console.log('[Historia] Status:', res.status);
-              const json = await res.json();
-              if (json.success) setHistoriaResgates(json.data);
-            }} className="w-full p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600">🔄 Carregar Histórico</button>
             {historiaResgates.length === 0 && (
-              <p className="text-xs text-slate-500 text-center py-4">Clique em "Carregar Histórico" para ver os resgates confirmados do seu segmento.</p>
+              <p className="text-xs text-slate-500 text-center py-4">Carregando histórico...</p>
             )}
             {historiaResgates.map((r: any) => (
               <div key={r._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-2">
@@ -1126,7 +1197,7 @@ function PollingRedemptions({ onUpdate, active, api, segment }: { onUpdate: (d: 
     if (!active) return;
     const fetchPending = async () => {
       try {
-        const url = segment ? `${api}/benefits/pending?segment=${segment}` : `${api}/benefits/pending`;
+        const url = segment && segment !== 'Outro' ? `${api}/benefits/pending?segment=${encodeURIComponent(segment)}` : `${api}/benefits/pending`;
         const res = await fetch(url);
         const json = await res.json();
         if (json?.success) onUpdate(json.data || []);

@@ -221,7 +221,7 @@ export class BenefitController {
   async getPending(@Query('segment') segment?: string) {
     try {
       const filter: any = { status: 'PENDENTE' };
-      if (segment) filter.partnerSegmento = segment;
+      if (segment && segment !== 'Outro') filter.partnerSegmento = segment;
       const redemptions = await this.redemptionModel
         .find(filter)
         .sort({ createdAt: -1 })
@@ -262,7 +262,8 @@ export class BenefitController {
   @Get('partner-segment/:segmento')
   async getBySegment(@Param('segmento') segmento: string, @Query('status') status?: string) {
     try {
-      const filter: any = { partnerSegmento: segmento };
+      const filter: any = {};
+      if (segmento !== 'Outro') filter.partnerSegmento = segmento;
       if (status) filter.status = status;
       const redemptions = await this.redemptionModel
         .find(filter)
