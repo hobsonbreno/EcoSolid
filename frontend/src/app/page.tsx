@@ -820,18 +820,23 @@ export default function EcoSolidApp() {
   // -------------------------------------------------------------------------------------------------
   // CARREGAR HISTÓRICO DO BANCO
   // -------------------------------------------------------------------------------------------------
-  // Busca alertas de sangue ativos para o tipo do cidadão
+  // Polling de alertas de sangue ativos a cada 30s
   useEffect(() => {
     if (!citizen?.bloodType || view !== 'DASHBOARD') return;
-    apiFetch('/alerts/blood/active')
-      .then(r => r.json())
-      .then(json => {
-        if (json.success) {
-          const relevant = json.data.filter((a: any) => a.bloodType === citizen.bloodType);
-          setBloodAlerts(relevant);
-        }
-      })
-      .catch(() => {});
+    const fetchAlerts = () => {
+      apiFetch('/alerts/blood/active')
+        .then(r => r.json())
+        .then(json => {
+          if (json.success) {
+            const relevant = json.data.filter((a: any) => a.bloodType === citizen.bloodType);
+            setBloodAlerts(relevant);
+          }
+        })
+        .catch(() => {});
+    };
+    fetchAlerts();
+    const interval = setInterval(fetchAlerts, 30000);
+    return () => clearInterval(interval);
   }, [citizen?.bloodType, view]);
 
   const loadHistory = async (citizenId: string) => {
@@ -1739,41 +1744,70 @@ export default function EcoSolidApp() {
             )}
           </div>
 
-          {/* WhatsApp CallMeBot */}
+          {/* WhatsApp CallMeBot — fluxo correto */}
           <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/30 space-y-3">
             <h3 className="text-sm font-bold text-green-400">📱 Alertas WhatsApp</h3>
             <p className="text-xs text-slate-400">
-              Para receber alertas urgentes no WhatsApp gratuitamente: envie a mensagem <code className="text-emerald-400 bg-slate-800 px-1 rounded">I allow callmebot to send me messages</code> para o número <strong className="text-white">+34 644 61 85 35</strong> no WhatsApp. Após enviar, você receberá sua API Key. Cole ela abaixo.
+              Receba alertas urgentes de doação de sangue direto no WhatsApp.
             </p>
-            <input
-              placeholder="Sua API Key do CallMeBot..."
-              value={whatsappApiKeyInput}
-              onChange={e => setWhatsappApiKeyInput(e.target.value)}
-              className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-green-500 text-sm"
-            />
-            <button
-              onClick={async () => {
-                const key = whatsappApiKeyInput.trim();
-                if (!key) { showToast('Cole sua API Key', 'error'); return; }
-                setLoading(true);
-                const res = await apiFetch(`/citizens/${citizen.id}`, {
-                  method: 'PATCH',
-                  body: JSON.stringify({ whatsappApiKey: key }),
-                });
-                const json = await res.json();
-                if (json.success) {
-                  setCitizen(json.data);
-                  setWhatsappApiKeyInput('');
-                  showToast('WhatsApp ativado com sucesso! ✓', 'success');
-                } else showToast(json.error, 'error');
-                setLoading(false);
-              }}
-              disabled={loading}
-              className="w-full p-3 rounded-xl bg-green-600 font-bold text-sm hover:bg-green-500 disabled:opacity-50"
-            >Salvar</button>
-            {citizen?.whatsappApiKey && (
-              <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/20">
-                <span className="text-green-400 text-sm font-bold">✅ WhatsApp ativado</span>
+            {citizen?.whatsappApiKey ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/20">
+                  <span className="text-green-400 text-sm font-bold">✅ WhatsApp ativado</span>
+                </div>
+                <button
+                  onClick={async () => {
+                    setLoading(true);
+                    const res = await apiFetch(`/citizens/${citizen.id}`, {
+                      method: 'PATCH',
+                      body: JSON.stringify({ whatsappApiKey: '' }),
+                    });
+                    const json = await res.json();
+                    if (json.success) { setCitizen(json.data); showToast('WhatsApp desativado.', 'info'); }
+                    setLoading(false);
+                  }}
+                  className="w-full p-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-bold hover:bg-red-500/30"
+                >Desativar WhatsApp</button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="p-3 rounded-lg bg-slate-800/50 space-y-2">
+                  <p className="text-xs font-bold text-white">Passo 1:</p>
+                  <a href="https://wa.me/34644618535?text=I+allow+callmebot+to+send+me+messages"
+                    target="_blank" rel="noopener"
+                    className="block w-full text-center p-2 rounded-lg bg-green-600 text-xs font-bold hover:bg-green-500"
+                  >📱 Ativar no WhatsApp</a>
+                  <p className="text-xs text-slate-500">Ao clicar, o WhatsApp abrirá com a mensagem pronta. Envie e aguarde a resposta com sua API Key.</p>
+                </div>
+                <div className="p-3 rounded-lg bg-slate-800/50 space-y-2">
+                  <p className="text-xs font-bold text-white">Passo 2:</p>
+                  <input
+                    placeholder="Cole sua API Key recebida..."
+                    value={whatsappApiKeyInput}
+                    onChange={e => setWhatsappApiKeyInput(e.target.value)}
+                    className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-green-500 text-sm"
+                  />
+                  <button
+                    onClick={async () => {
+                      const key = whatsappApiKeyInput.trim();
+                      if (!key) { showToast('Cole sua API Key', 'error'); return; }
+                      setLoading(true);
+                      const res = await apiFetch(`/citizens/${citizen.id}`, {
+                        method: 'PATCH',
+                        body: JSON.stringify({ whatsappApiKey: key }),
+                      });
+                      const json = await res.json();
+                      if (json.success) {
+                        setCitizen(json.data);
+                        setWhatsappApiKeyInput('');
+                        showToast('WhatsApp ativado! ✓', 'success');
+                      } else showToast(json.error, 'error');
+                      setLoading(false);
+                    }}
+                    disabled={loading || !whatsappApiKeyInput.trim()}
+                    className="w-full p-3 rounded-xl bg-green-600 font-bold text-sm hover:bg-green-500 disabled:opacity-50"
+                  >💾 Salvar API Key</button>
+                </div>
               </div>
             )}
           </div>
@@ -1785,10 +1819,14 @@ export default function EcoSolidApp() {
 
       {dashboardTab === 'OVERVIEW' && (
         <main className="p-6 max-w-md mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          {/* Banner alerta de sangue raro */}
+          {/* Banner alerta de sangue — fixo no topo com dismiss */}
           {bloodAlerts.length > 0 && bloodAlerts.map((alert: any, i: number) => (
-            <div key={i} className="p-4 rounded-xl bg-red-600/20 border border-red-500 animate-pulse">
-              <p className="text-sm font-bold text-red-400">🚨 URGENTE: Seu tipo sanguíneo <span className="font-black">{alert.bloodType}</span> é necessário no <strong>{alert.hospital}</strong>.</p>
+            <div key={i} className="sticky top-0 z-40 p-4 rounded-xl bg-red-600/20 border border-red-500 animate-pulse">
+              <div className="flex justify-between items-start">
+                <p className="text-sm font-bold text-red-400 flex-1">🚨 URGENTE: Seu tipo sanguíneo <span className="font-black">{alert.bloodType}</span> é necessário no <strong>{alert.hospital}</strong>.</p>
+                <button onClick={() => setBloodAlerts(prev => prev.filter((_, idx) => idx !== i))}
+                  className="text-red-400 hover:text-red-300 text-lg leading-none ml-2">&times;</button>
+              </div>
               <p className="text-xs text-red-300 mt-1">{alert.message}</p>
               <p className="text-xs text-red-500/70 mt-1">⏱️ Alerta criado {getRelativeTime(alert.createdAt)}</p>
               <button
