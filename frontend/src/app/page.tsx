@@ -63,7 +63,7 @@ export default function EcoSolidApp() {
   const [redeemDuracao, setRedeemDuracao] = useState(0);
   const [redeemExpiresAt, setRedeemExpiresAt] = useState<string | null>(null);
   const [citizenRedemptions, setCitizenRedemptions] = useState<any[]>([]);
-  const [whatsappApiKeyInput, setWhatsappApiKeyInput] = useState('');
+  const [bloodAlert, setBloodAlert] = useState<{bloodType: string; hospital: string; message: string; createdAt: string} | null>(null);
   const [citizen, setCitizen] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [txHistory, setTxHistory] = useState<any[]>([]);
@@ -104,7 +104,6 @@ export default function EcoSolidApp() {
   const [certificateModal, setCertificateModal] = useState<{ action: any; citizenName: string } | null>(null);
   const [redeemModal, setRedeemModal] = useState<{ code: string; partnerName: string; benefitDescription: string; solidCost: number } | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [bloodAlerts, setBloodAlerts] = useState<any[]>([]);
 
   // Sistema de níveis
   const getLevel = (points: number) => {
@@ -828,9 +827,17 @@ export default function EcoSolidApp() {
       apiFetch('/alerts/blood/active')
         .then(r => r.json())
         .then(json => {
-          if (json.success) {
+          if (json.success && json.data.length > 0) {
             const relevant = json.data.filter((a: any) => a.bloodType === citizen.bloodType);
-            setBloodAlerts(relevant);
+            if (relevant.length > 0) {
+              const latest = relevant[0];
+              // Verificar se usuário dispensou nas últimas 2h
+              const dismissed = localStorage.getItem('ecosolid_alert_dismissed');
+              if (dismissed && (Date.now() - parseInt(dismissed)) < 2 * 60 * 60 * 1000) {
+                return; // ainda dentro das 2h de dismiss
+              }
+              setBloodAlert(latest);
+            }
           }
         })
         .catch(() => {});
@@ -1407,7 +1414,7 @@ export default function EcoSolidApp() {
       )}
 
       <nav className="flex sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-white/10 p-2 items-center">
-        <button onClick={() => setDashboardTab('OVERVIEW')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'OVERVIEW' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Visão Geral</button>
+        <button onClick={() => setDashboardTab('OVERVIEW')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors relative ${dashboardTab === 'OVERVIEW' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Visão Geral{bloodAlert && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 animate-pulse" />}</button>
         <button onClick={() => setDashboardTab('BENEFITS')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'BENEFITS' ? 'bg-white/10 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}>Benefícios</button>
         <button onClick={() => setDashboardTab('CONTAS')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'CONTAS' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Contas</button>
         <button onClick={() => setDashboardTab('PROFILE')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'PROFILE' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Dados Pessoais</button>
@@ -1789,74 +1796,6 @@ export default function EcoSolidApp() {
             )}
           </div>
 
-          {/* WhatsApp CallMeBot — fluxo correto */}
-          <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/30 space-y-3">
-            <h3 className="text-sm font-bold text-green-400">📱 Alertas WhatsApp</h3>
-            <p className="text-xs text-slate-400">
-              Receba alertas urgentes de doação de sangue direto no WhatsApp.
-            </p>
-            {citizen?.whatsappApiKey ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 p-2 rounded-lg bg-green-500/20">
-                  <span className="text-green-400 text-sm font-bold">✅ WhatsApp ativado</span>
-                </div>
-                <button
-                  onClick={async () => {
-                    setLoading(true);
-                    const res = await apiFetch(`/citizens/${citizen.id}`, {
-                      method: 'PATCH',
-                      body: JSON.stringify({ whatsappApiKey: '' }),
-                    });
-                    const json = await res.json();
-                    if (json.success) { setCitizen(json.data); showToast('WhatsApp desativado.', 'info'); }
-                    setLoading(false);
-                  }}
-                  className="w-full p-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-bold hover:bg-red-500/30"
-                >Desativar WhatsApp</button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="p-3 rounded-lg bg-slate-800/50 space-y-2">
-                  <p className="text-xs font-bold text-white">Passo 1:</p>
-                  <a href="https://wa.me/34644618535?text=I+allow+callmebot+to+send+me+messages"
-                    target="_blank" rel="noopener"
-                    className="block w-full text-center p-2 rounded-lg bg-green-600 text-xs font-bold hover:bg-green-500"
-                  >📱 Ativar no WhatsApp</a>
-                  <p className="text-xs text-slate-500">Ao clicar, o WhatsApp abrirá com a mensagem pronta. Envie e aguarde a resposta com sua API Key.</p>
-                </div>
-                <div className="p-3 rounded-lg bg-slate-800/50 space-y-2">
-                  <p className="text-xs font-bold text-white">Passo 2:</p>
-                  <input
-                    placeholder="Cole sua API Key recebida..."
-                    value={whatsappApiKeyInput}
-                    onChange={e => setWhatsappApiKeyInput(e.target.value)}
-                    className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-green-500 text-sm"
-                  />
-                  <button
-                    onClick={async () => {
-                      const key = whatsappApiKeyInput.trim();
-                      if (!key) { showToast('Cole sua API Key', 'error'); return; }
-                      setLoading(true);
-                      const res = await apiFetch(`/citizens/${citizen.id}`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ whatsappApiKey: key }),
-                      });
-                      const json = await res.json();
-                      if (json.success) {
-                        setCitizen(json.data);
-                        setWhatsappApiKeyInput('');
-                        showToast('WhatsApp ativado! ✓', 'success');
-                      } else showToast(json.error, 'error');
-                      setLoading(false);
-                    }}
-                    disabled={loading || !whatsappApiKeyInput.trim()}
-                    className="w-full p-3 rounded-xl bg-green-600 font-bold text-sm hover:bg-green-500 disabled:opacity-50"
-                  >💾 Salvar API Key</button>
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* Próximo Agendamento */}
           <AppointmentCard citizenId={citizen?.id} />
         </main>
@@ -1864,27 +1803,6 @@ export default function EcoSolidApp() {
 
       {dashboardTab === 'OVERVIEW' && (
         <main className="p-6 max-w-md mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-          {/* Banner alerta de sangue — fixo no topo com dismiss */}
-          {bloodAlerts.length > 0 && bloodAlerts.map((alert: any, i: number) => (
-            <div key={i} className="sticky top-0 z-40 p-4 rounded-xl bg-red-600/20 border border-red-500 animate-pulse">
-              <div className="flex justify-between items-start">
-                <p className="text-sm font-bold text-red-400 flex-1">🚨 URGENTE: Seu tipo sanguíneo <span className="font-black">{alert.bloodType}</span> é necessário no <strong>{alert.hospital}</strong>.</p>
-                <button onClick={() => setBloodAlerts(prev => prev.filter((_, idx) => idx !== i))}
-                  className="text-red-400 hover:text-red-300 text-lg leading-none ml-2">&times;</button>
-              </div>
-              <p className="text-xs text-red-300 mt-1">{alert.message}</p>
-              <p className="text-xs text-red-500/70 mt-1">⏱️ Alerta criado {getRelativeTime(alert.createdAt)}</p>
-              <button
-                onClick={() => {
-                  openActionModal('BLOOD_DONATION', 1000, '🩸', 'Doação de Sangue Emergencial');
-                  setActionBloodType(citizen?.bloodType || '');
-                }}
-                className="mt-3 w-full p-3 rounded-xl bg-red-500 font-bold text-white text-sm hover:bg-red-400"
-              >
-                🩸 Quero Doar — Ganhe 1.000 SOLID
-              </button>
-            </div>
-          ))}
           <section className="p-8 rounded-3xl bg-white/5 border border-white/10 shadow-2xl relative overflow-hidden">
             <p className="text-sm text-slate-400">Saldo Consolidado</p>
             <div className="flex items-end gap-2 mb-6">
@@ -2006,6 +1924,45 @@ Verificado por EcoSolid — blockchain pública`;
             </div>
           </section>
         </main>
+      )}
+
+      {/* Modal Fullscreen Alerta de Sangue */}
+      {bloodAlert && (
+        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center p-6 bg-red-950/95 animate-pulse">
+          <div className="text-center space-y-6 max-w-sm">
+            <div className="text-6xl animate-bounce">🚨</div>
+            <h1 className="text-4xl font-black text-red-400 animate-pulse">URGENTE</h1>
+            <p className="text-2xl font-bold text-white">
+              Seu Sangue <span className="text-red-400 font-black">{bloodAlert.bloodType}</span> é Necessário!
+            </p>
+            <div className="bg-red-500/20 border border-red-500/40 rounded-2xl p-4">
+              <p className="text-lg font-bold text-white">{bloodAlert.hospital}</p>
+              <p className="text-sm text-red-200 mt-2">{bloodAlert.message}</p>
+            </div>
+            <div className="inline-block px-4 py-2 rounded-full bg-red-500/30 border border-red-400/50">
+              <span className="text-red-300 font-bold text-sm">🩸 {bloodAlert.bloodType}</span>
+            </div>
+            <button
+              onClick={() => {
+                setBloodAlert(null);
+                openActionModal('BLOOD_DONATION', 1000, '🩸', 'Doação de Sangue Emergencial');
+                setActionBloodType(citizen?.bloodType || '');
+              }}
+              className="w-full p-4 rounded-xl bg-green-500 font-bold text-white text-lg hover:bg-green-400 shadow-[0_0_30px_rgba(34,197,94,0.4)]"
+            >
+              🩸 Agendar Doação — Ganhar 1.000 SOLID
+            </button>
+            <button
+              onClick={() => {
+                localStorage.setItem('ecosolid_alert_dismissed', Date.now().toString());
+                setBloodAlert(null);
+              }}
+              className="text-slate-400 hover:text-slate-300 text-sm underline"
+            >
+              Lembrar depois (2h)
+            </button>
+          </div>
+        </div>
       )}
 
       {actionModal && (

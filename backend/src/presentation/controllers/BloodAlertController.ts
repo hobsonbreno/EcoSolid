@@ -9,18 +9,6 @@ export class BloodAlertController {
     @InjectModel('Citizen') private readonly citizenModel: Model<any>,
   ) {}
 
-  private async sendWhatsApp(phone: string, message: string, apikey: string): Promise<boolean> {
-    try {
-      const cleanPhone = phone.replace(/^\+/, '').replace(/\D/g, '');
-      const url = `https://api.callmebot.com/whatsapp.php?phone=${cleanPhone}&text=${encodeURIComponent(message)}&apikey=${apikey}`;
-      const res = await fetch(url);
-      return res.ok;
-    } catch (err) {
-      console.warn('[WhatsApp] Falha ao enviar mensagem:', err);
-      return false;
-    }
-  }
-
   @Post('blood')
   async createAlert(@Body() body: { bloodType: string; message: string; hospital: string; location?: string }) {
     try {
@@ -32,7 +20,6 @@ export class BloodAlertController {
       });
 
       const bloodType = body.bloodType.toUpperCase();
-      const whatsappMsg = `🚨 URGENTE EcoSolid: Seu tipo sanguíneo ${bloodType} é necessário no ${body.hospital}. ${body.message} Doe agora e ganhe 1.000 SOLID! Acesse: https://eco-solid.vercel.app`;
 
       // Buscar cidadãos com o tipo sanguíneo
       const citizens = await this.citizenModel.find({
@@ -40,7 +27,6 @@ export class BloodAlertController {
       }).lean().exec();
 
       let pushCount = 0;
-      let whatsappCount = 0;
 
       // Dispara push notifications para quem tem pushToken
       try {
@@ -67,18 +53,10 @@ export class BloodAlertController {
         }
       } catch (pushErr) { console.warn('Push não enviado:', pushErr); }
 
-      // Envia WhatsApp via CallMeBot para quem tem whatsappApiKey
-      for (const c of citizens) {
-        if (c.whatsappApiKey && c.phone) {
-          const sent = await this.sendWhatsApp(c.phone, whatsappMsg, c.whatsappApiKey);
-          if (sent) whatsappCount++;
-        }
-      }
-
       return {
         success: true,
         data: alert,
-        message: `Alerta criado! ${pushCount} push + ${whatsappCount} WhatsApp enviados para ${bloodType}`,
+        message: `Alerta criado! ${pushCount} push enviados para ${bloodType}`,
       };
     } catch (error: any) {
       return { success: false, error: error.message };

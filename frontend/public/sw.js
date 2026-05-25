@@ -47,7 +47,7 @@ self.addEventListener('push', (event) => {
       icon: payload.icon || '/icons/icon-192x192.png',
       badge: '/icons/icon-192x192.png',
       data: payload.data || {},
-      vibrate: [200, 100, 200],
+      vibrate: [300, 100, 300, 100, 300],
       requireInteraction: true,
     };
     event.waitUntil(
@@ -58,7 +58,7 @@ self.addEventListener('push', (event) => {
       self.registration.showNotification('EcoSolid', {
         body: event.data.text(),
         icon: '/icons/icon-192x192.png',
-        vibrate: [200, 100, 200],
+        vibrate: [300, 100, 300, 100, 300],
       })
     );
   }

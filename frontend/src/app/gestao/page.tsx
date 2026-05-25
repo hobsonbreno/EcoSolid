@@ -409,7 +409,7 @@ export default function GestaoPage() {
                 onChange={e => setAlertForm({ ...alertForm, message: e.target.value })}
                 className="w-full p-3 rounded-xl bg-slate-900 border border-slate-800 outline-none focus:border-red-500" />
               <button type="submit" disabled={loading}
-                className="w-full p-3 rounded-xl bg-red-500 font-bold hover:bg-red-400">🚨 Disparar Alerta + Push + WhatsApp</button>
+                className="w-full p-3 rounded-xl bg-red-500 font-bold hover:bg-red-400">🚨 Disparar Alerta + Push</button>
             </form>
 
             {/* Doadores por Tipo com Distância */}
