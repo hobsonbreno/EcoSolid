@@ -9,19 +9,20 @@ export class BenefitController {
     @InjectModel('Citizen') private readonly citizenModel: Model<any>,
   ) {}
 
-  // Mapeamento de segmentos por parceiro
-  private readonly segmentMap: Record<string, string> = {
-    'Zona Azul Fortaleza': 'Estacionamento',
-    'Clinica Saude+': 'Hospital',
-    'CAGECE': 'Energia',
-    'Enel CE': 'Energia',
-    'Restaurante Verde': 'Restaurante',
+  // Mapeamento completo dos benefícios fixos
+  private readonly benefitMap: Record<string, { segmento: string; orgao: string; duracaoMinutos: number }> = {
+    'Zona Azul Fortaleza': { segmento: 'Estacionamento', orgao: 'Prefeitura Municipal de Fortaleza - AMC', duracaoMinutos: 60 },
+    'Clinica Saude+': { segmento: 'Hospital', orgao: 'Clínica Saúde+', duracaoMinutos: 0 },
+    'CAGECE': { segmento: 'Energia', orgao: 'CAGECE', duracaoMinutos: 0 },
+    'Enel CE': { segmento: 'Energia', orgao: 'Enel CE', duracaoMinutos: 0 },
+    'Restaurante Verde': { segmento: 'Restaurante', orgao: 'Restaurante Verde', duracaoMinutos: 90 },
   };
 
   @Post('redeem')
   async redeem(@Body() body: {
     citizenId: string; partnerName: string; partnerIcon: string;
     solidCost: number; benefitDescription: string;
+    lat?: number; lng?: number; locationAddress?: string;
   }) {
     try {
       const maintenanceFee = Math.round(body.solidCost * 0.05);
@@ -29,18 +30,24 @@ export class BenefitController {
       let code = '';
       for (let i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
 
-      const segment = this.segmentMap[body.partnerName] || 'Outro';
+      const meta = this.benefitMap[body.partnerName] || { segmento: 'Outro', orgao: body.partnerName, duracaoMinutos: 0 };
 
       const redemption = await this.redemptionModel.create({
         citizenId: body.citizenId,
         partnerName: body.partnerName,
-        partnerSegmento: segment,
+        partnerOrgao: meta.orgao,
+        partnerSegmento: meta.segmento,
         partnerIcon: body.partnerIcon || '🎁',
         solidCost: body.solidCost,
         maintenanceFee,
         benefitDescription: body.benefitDescription,
+        duracaoMinutos: meta.duracaoMinutos,
         code,
         status: 'PENDENTE',
+        timerStatus: 'aguardando',
+        lat: body.lat || null,
+        lng: body.lng || null,
+        locationAddress: body.locationAddress || null,
       });
 
       return {
@@ -49,7 +56,9 @@ export class BenefitController {
           id: redemption._id,
           code,
           partnerName: body.partnerName,
+          partnerOrgao: meta.orgao,
           benefitDescription: body.benefitDescription,
+          duracaoMinutos: meta.duracaoMinutos,
           solidCost: body.solidCost,
           maintenanceFee,
           status: 'PENDENTE',
@@ -72,7 +81,6 @@ export class BenefitController {
         return { success: false, error: 'Este código já foi utilizado' };
       }
 
-      // Verificar expiração (30 min)
       const age = Date.now() - new Date(redemption.createdAt).getTime();
       if (age > 30 * 60 * 1000) {
         redemption.status = 'EXPIRADO';
@@ -80,11 +88,9 @@ export class BenefitController {
         return { success: false, error: 'Este código expirou (30 minutos)' };
       }
 
-      // Debitar SOLID do cidadão
       const citizen = await this.citizenModel.findById(redemption.citizenId);
       if (citizen) {
         citizen.totalPoints = Math.max(0, (citizen.totalPoints || 0) - redemption.solidCost);
-        // Recalcular nível
         if (citizen.totalPoints >= 3000) citizen.level = 'FOREST';
         else if (citizen.totalPoints >= 1000) citizen.level = 'TREE';
         else if (citizen.totalPoints >= 500) citizen.level = 'SPROUT';
@@ -93,21 +99,28 @@ export class BenefitController {
         await citizen.save();
       }
 
+      const now = new Date();
       redemption.status = 'CONFIRMADO';
-      redemption.validatedAt = new Date();
+      redemption.validatedAt = now;
+      if (redemption.duracaoMinutos > 0) {
+        redemption.expiresAt = new Date(now.getTime() + redemption.duracaoMinutos * 60000);
+        redemption.timerStatus = 'ativo';
+      } else {
+        redemption.timerStatus = 'encerrado';
+      }
       await redemption.save();
 
       return {
         success: true,
         data: {
-          code: redemption.code,
-          partnerName: redemption.partnerName,
-          benefitDescription: redemption.benefitDescription,
-          solidCost: redemption.solidCost,
-          validatedAt: redemption.validatedAt,
+          ...redemption.toObject(),
+          validatedAt: now,
+          expiresAt: redemption.expiresAt,
+          duracaoMinutos: redemption.duracaoMinutos,
           status: 'CONFIRMADO',
+          timerStatus: redemption.timerStatus,
         },
-        message: `Resgate de ${redemption.solidCost} SOLID confirmado!`,
+        message: `Resgate de ${redemption.solidCost} SOLID confirmado!${redemption.duracaoMinutos > 0 ? ` Timer de ${redemption.duracaoMinutos}min iniciado.` : ''}`,
       };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -142,11 +155,62 @@ export class BenefitController {
         await citizen.save();
       }
 
+      const now = new Date();
       redemption.status = 'CONFIRMADO';
-      redemption.validatedAt = new Date();
+      redemption.validatedAt = now;
+      if (redemption.duracaoMinutos > 0) {
+        redemption.expiresAt = new Date(now.getTime() + redemption.duracaoMinutos * 60000);
+        redemption.timerStatus = 'ativo';
+      } else {
+        redemption.timerStatus = 'encerrado';
+      }
       await redemption.save();
 
-      return { success: true, data: redemption, message: 'Resgate confirmado!' };
+      return {
+        success: true,
+        data: {
+          ...redemption.toObject(),
+          validatedAt: now,
+          expiresAt: redemption.expiresAt,
+          duracaoMinutos: redemption.duracaoMinutos,
+          timerStatus: redemption.timerStatus,
+        },
+        message: `Resgate confirmado!${redemption.duracaoMinutos > 0 ? ` Timer de ${redemption.duracaoMinutos}min iniciado.` : ''}`,
+      };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Resgates ativos prestes a expirar (para notificações)
+  @Get('expiring-soon')
+  async expiringSoon() {
+    try {
+      const now = new Date();
+      const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60000);
+      const redemptions = await this.redemptionModel
+        .find({
+          status: 'CONFIRMADO',
+          timerStatus: 'ativo',
+          expiresAt: { $gte: now, $lte: fiveMinutesFromNow },
+        })
+        .lean()
+        .exec();
+      return { success: true, data: redemptions };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Marcar timer como encerrado (cidadão já usou o benefício)
+  @Post(':id/end-timer')
+  async endTimer(@Param('id') id: string) {
+    try {
+      const redemption = await this.redemptionModel.findById(id);
+      if (!redemption) return { success: false, error: 'Resgate não encontrado' };
+      redemption.timerStatus = 'encerrado';
+      await redemption.save();
+      return { success: true, data: redemption, message: 'Timer encerrado.' };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

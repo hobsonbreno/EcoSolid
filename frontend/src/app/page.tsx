@@ -60,6 +60,8 @@ export default function EcoSolidApp() {
   const [redeemCreatedAt, setRedeemCreatedAt] = useState<string | null>(null);
   const [redeemTxHash, setRedeemTxHash] = useState<string | null>(null);
   const [redeemCountdown, setRedeemCountdown] = useState(0);
+  const [redeemDuracao, setRedeemDuracao] = useState(0);
+  const [redeemExpiresAt, setRedeemExpiresAt] = useState<string | null>(null);
   const [whatsappApiKeyInput, setWhatsappApiKeyInput] = useState('');
   const [citizen, setCitizen] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -891,24 +893,37 @@ export default function EcoSolidApp() {
     setShowPermissionSetup(false);
   };
 
-  const handleRedeemBenefit = async (icon: string, name: string, cost: number, description: string) => {
+  const handleRedeemBenefit = async (icon: string, name: string, cost: number, description: string, duracaoMinutos: number = 0) => {
     if (!citizen || (citizen.totalPoints || 0) < cost) return;
     setLoading(true);
+
+    // Capturar geolocalização atual
+    let lat: number | undefined;
+    let lng: number | undefined;
+    let locationAddress: string | undefined;
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000, maximumAge: 60000 });
+      });
+      lat = pos.coords.latitude;
+      lng = pos.coords.longitude;
+      // Reverse geocoding via Nominatim
+      try {
+        const geoRes = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+        const geoJson = await geoRes.json();
+        locationAddress = geoJson?.display_name || `${lat}, ${lng}`;
+      } catch {}
+    } catch {}
+
     try {
       const res = await apiFetch('/benefits/redeem', {
         method: 'POST',
-        body: JSON.stringify({ citizenId: citizen.id, partnerName: name, partnerIcon: icon, solidCost: cost, benefitDescription: description }),
+        body: JSON.stringify({ citizenId: citizen.id, partnerName: name, partnerIcon: icon, solidCost: cost, benefitDescription: description, lat, lng, locationAddress }),
       });
       const json = await res.json();
       if (json.success) {
-        // Gera QR Code
-        const qrText = JSON.stringify({
-          code: json.data.code,
-          citizenId: citizen.id,
-          partner: name,
-          benefit: description,
-          timestamp: new Date().toISOString(),
-        });
+        setRedeemDuracao(duracaoMinutos);
+        const qrText = JSON.stringify({ code: json.data.code, citizenId: citizen.id, partner: name, benefit: description, timestamp: new Date().toISOString() });
         const dataUrl = await QRCodeLib.toDataURL(qrText, { width: 300, margin: 2 });
         setQrDataUrl(dataUrl);
         setRedeemModal({
@@ -938,19 +953,31 @@ export default function EcoSolidApp() {
     return () => clearInterval(interval);
   }, []);
 
-  // Countdown do resgate (30 min)
+  // Countdown do resgate (30 min pendente OU timer de uso após confirmação)
   useEffect(() => {
-    if (!redeemCreatedAt || redeemStatus !== 'PENDENTE') return;
-    const deadline = new Date(redeemCreatedAt).getTime() + 30 * 60 * 1000;
-    const update = () => {
-      const remaining = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
-      setRedeemCountdown(remaining);
-      if (remaining <= 0) setRedeemStatus('EXPIRADO');
-    };
-    update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, [redeemCreatedAt, redeemStatus]);
+    if (redeemStatus === 'PENDENTE' && redeemCreatedAt) {
+      // Countdown de 30 min para aprovação
+      const deadline = new Date(redeemCreatedAt).getTime() + 30 * 60 * 1000;
+      const update = () => {
+        const remaining = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+        setRedeemCountdown(remaining);
+        if (remaining <= 0) setRedeemStatus('EXPIRADO');
+      };
+      update();
+      const interval = setInterval(update, 1000);
+      return () => clearInterval(interval);
+    }
+    if (redeemStatus === 'CONFIRMADO' && redeemDuracao > 0 && redeemCountdown > 0) {
+      // Timer de uso do benefício
+      const deadline = redeemExpiresAt ? new Date(redeemExpiresAt).getTime() : Date.now() + redeemCountdown * 1000;
+      const update = () => {
+        const remaining = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
+        setRedeemCountdown(remaining);
+      };
+      const interval = setInterval(update, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [redeemCreatedAt, redeemStatus, redeemDuracao, redeemExpiresAt, redeemCountdown]);
 
   // Polling do resgate — status em tempo real
   useEffect(() => {
@@ -962,17 +989,24 @@ export default function EcoSolidApp() {
         if (json?.success) {
           const ours = json.data?.find((r: any) => r.code === redeemModal.code);
           if (!ours) {
-            // Não está mais em pending — foi confirmado. Buscar txHash.
+            // Não está mais em pending — foi confirmado.
             setRedeemStatus('CONFIRMADO');
             setRedeemCountdown(0);
             refreshData();
-            // Buscar txHash via listagem completa (admin/redemptions/all)
             try {
               const allRes = await apiFetch('/admin/redemptions/all', { headers: { 'x-admin-key': 'ecosolid-admin-2026' } });
               const allJson = await allRes.json();
               if (allJson?.success) {
                 const confirmed = allJson.data?.find((r: any) => r.code === redeemModal.code);
-                if (confirmed?.txHash) setRedeemTxHash(confirmed.txHash);
+                if (confirmed) {
+                  if (confirmed.txHash) setRedeemTxHash(confirmed.txHash);
+                  if (confirmed.duracaoMinutos > 0 && confirmed.validatedAt) {
+                    setRedeemDuracao(confirmed.duracaoMinutos);
+                    setRedeemExpiresAt(confirmed.expiresAt);
+                    const expiryMs = confirmed.expiresAt ? new Date(confirmed.expiresAt).getTime() : new Date(confirmed.validatedAt).getTime() + confirmed.duracaoMinutos * 60000;
+                    setRedeemCountdown(Math.max(0, Math.floor((expiryMs - Date.now()) / 1000)));
+                  }
+                }
               }
             } catch {}
           } else if (new Date(ours.createdAt).getTime() + 30 * 60 * 1000 < Date.now()) {
@@ -1228,6 +1262,24 @@ export default function EcoSolidApp() {
   const levelInfo = getLevelInfo(citizen?.totalPoints || 0);
 
   // Componente auxiliar para exibir rede e saldo na aba Contas
+  const TimerProgressBar = ({ totalSec, remainingSec }: { totalSec: number; remainingSec: number }) => {
+    const pct = Math.max(0, Math.min(100, (remainingSec / totalSec) * 100));
+    const mins = Math.floor(remainingSec / 60);
+    const secs = remainingSec % 60;
+    const isLow = remainingSec < 300; // menos de 5 min
+    return (
+      <div className="space-y-1">
+        <div className="w-full h-2 rounded-full bg-slate-700 overflow-hidden">
+          <div className={`h-full rounded-full transition-all duration-1000 ${isLow ? 'bg-red-500' : 'bg-emerald-500'}`}
+            style={{ width: `${pct}%` }} />
+        </div>
+        <p className={`text-xs font-mono font-bold text-center ${isLow ? 'text-red-400' : 'text-emerald-400'}`}>
+          Tempo restante: {mins}:{secs.toString().padStart(2, '0')}
+        </p>
+      </div>
+    );
+  };
+
   const AppointmentCard = ({ citizenId }: { citizenId: string }) => {
     const [appointment, setAppointment] = useState<any>(null);
     useEffect(() => {
@@ -1364,11 +1416,12 @@ export default function EcoSolidApp() {
                 <span className="text-3xl">🅿️</span>
                 <div className="flex-1">
                   <p className="font-bold text-white text-sm">Zona Azul Fortaleza</p>
-                  <p className="text-xs text-slate-400">1 hora de estacionamento</p>
+                  <p className="text-xs text-slate-400">1 hora de estacionamento • AMC</p>
+                  <p className="text-xs text-slate-500">⏱️ 60 min de uso</p>
                 </div>
                 <span className="text-amber-400 font-black text-lg">50</span>
               </div>
-              <button onClick={() => handleRedeemBenefit('🅿️', 'Zona Azul Fortaleza', 50, '1 hora de estacionamento')} disabled={loading || (citizen?.totalPoints || 0) < 50} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
+              <button onClick={() => handleRedeemBenefit('🅿️', 'Zona Azul Fortaleza', 50, '1 hora de estacionamento', 60)} disabled={loading || (citizen?.totalPoints || 0) < 50} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
                 {(citizen?.totalPoints || 0) < 50 ? 'SOLID Insuficiente' : 'Resgatar'}
               </button>
             </div>
@@ -1382,7 +1435,7 @@ export default function EcoSolidApp() {
                 </div>
                 <span className="text-amber-400 font-black text-lg">500</span>
               </div>
-              <button onClick={() => handleRedeemBenefit('🏥', 'Clínica Saúde+', 500, 'Consulta clínica geral')} disabled={loading || (citizen?.totalPoints || 0) < 500} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
+              <button onClick={() => handleRedeemBenefit('🏥', 'Clínica Saúde+', 500, 'Consulta clínica geral', 0)} disabled={loading || (citizen?.totalPoints || 0) < 500} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
                 {(citizen?.totalPoints || 0) < 500 ? 'SOLID Insuficiente' : 'Resgatar'}
               </button>
             </div>
@@ -1396,7 +1449,7 @@ export default function EcoSolidApp() {
                 </div>
                 <span className="text-amber-400 font-black text-lg">200</span>
               </div>
-              <button onClick={() => handleRedeemBenefit('💧', 'CAGECE', 200, '10% desconto na fatura')} disabled={loading || (citizen?.totalPoints || 0) < 200} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
+              <button onClick={() => handleRedeemBenefit('💧', 'CAGECE', 200, '10% desconto na fatura', 0)} disabled={loading || (citizen?.totalPoints || 0) < 200} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
                 {(citizen?.totalPoints || 0) < 200 ? 'SOLID Insuficiente' : 'Resgatar'}
               </button>
             </div>
@@ -1410,7 +1463,7 @@ export default function EcoSolidApp() {
                 </div>
                 <span className="text-amber-400 font-black text-lg">200</span>
               </div>
-              <button onClick={() => handleRedeemBenefit('⚡', 'Enel CE', 200, '10% desconto na fatura')} disabled={loading || (citizen?.totalPoints || 0) < 200} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
+              <button onClick={() => handleRedeemBenefit('⚡', 'Enel CE', 200, '10% desconto na fatura', 0)} disabled={loading || (citizen?.totalPoints || 0) < 200} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
                 {(citizen?.totalPoints || 0) < 200 ? 'SOLID Insuficiente' : 'Resgatar'}
               </button>
             </div>
@@ -1421,10 +1474,11 @@ export default function EcoSolidApp() {
                 <div className="flex-1">
                   <p className="font-bold text-white text-sm">Restaurante Verde</p>
                   <p className="text-xs text-slate-400">Refeição executiva</p>
+                  <p className="text-xs text-slate-500">⏱️ 90 min de uso</p>
                 </div>
                 <span className="text-amber-400 font-black text-lg">300</span>
               </div>
-              <button onClick={() => handleRedeemBenefit('🍽️', 'Restaurante Verde', 300, 'Refeição executiva')} disabled={loading || (citizen?.totalPoints || 0) < 300} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
+              <button onClick={() => handleRedeemBenefit('🍽️', 'Restaurante Verde', 300, 'Refeição executiva', 90)} disabled={loading || (citizen?.totalPoints || 0) < 300} className="w-full p-3 rounded-xl bg-amber-500 font-bold text-white text-sm hover:bg-amber-400 disabled:opacity-50">
                 {(citizen?.totalPoints || 0) < 300 ? 'SOLID Insuficiente' : 'Resgatar'}
               </button>
             </div>
@@ -2080,7 +2134,17 @@ Verificado por EcoSolid — blockchain pública`;
               )}
               {redeemStatus === 'CONFIRMADO' && (
                 <div className="space-y-2">
-                  <span className="text-sm font-bold text-emerald-400">✅ Aprovado! Pode usar o benefício.</span>
+                  <span className="text-sm font-bold text-emerald-400">
+                    {redeemDuracao > 0
+                      ? `✅ Aprovado! Você tem ${redeemDuracao} minutos para usar.`
+                      : '✅ Aprovado! Pode usar o benefício.'}
+                  </span>
+                  {redeemDuracao > 0 && redeemCountdown > 0 && (
+                    <TimerProgressBar totalSec={redeemDuracao * 60} remainingSec={redeemCountdown} />
+                  )}
+                  {redeemDuracao > 0 && redeemCountdown <= 0 && (
+                    <p className="text-xs font-bold text-red-400">⏰ Tempo esgotado! Benefício encerrado.</p>
+                  )}
                   {redeemTxHash && (
                     <a href={`https://sepolia.etherscan.io/tx/${redeemTxHash}`} target="_blank" rel="noopener"
                       className="block text-xs text-cyan-400 hover:underline font-mono truncate">{redeemTxHash}</a>

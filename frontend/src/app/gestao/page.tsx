@@ -852,31 +852,12 @@ export default function GestaoPage() {
               </div>
               {pendingRedemptions.length === 0 && <p className="text-xs text-slate-500">Nenhum resgate pendente.</p>}
               {pendingRedemptions.map((r: any) => (
-                <div key={r._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 flex justify-between items-center">
-                  <div>
-                    <p className="font-mono font-bold">{r.code}</p>
-                    <p className="text-xs text-slate-400">{r.benefitDescription} — {r.solidCost} SOLID</p>
-                    <p className="text-xs text-slate-500">Cidadão: {r.citizenId}</p>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      setLoading(true);
-                      const res = await fetch(`${API}/benefits/${r._id}/confirm`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ partnerName }),
-                      });
-                      const json = await res.json();
-                      if (json.success) {
-                        setPendingRedemptions(prev => prev.filter(x => x._id !== r._id));
-                        alert(`${r.solidCost} SOLID debitados. Resgate confirmado!`);
-                      } else alert(json.error);
-                      setLoading(false);
-                    }}
-                    disabled={loading}
-                    className="text-xs px-3 py-1 rounded-lg bg-green-600 font-bold hover:bg-green-500"
-                  >Confirmar Resgate</button>
-                </div>
+                <PendingRedemptionCard key={r._id} redemption={r} api={API} partnerName={partnerName}
+                  onUpdate={(id: string, confirmed: boolean) => {
+                    setPendingRedemptions(prev => prev.filter(x => x._id !== id));
+                    if (confirmed) alert(`${r.solidCost} SOLID debitados. Timer${r.duracaoMinutos > 0 ? ` de ${r.duracaoMinutos}min` : ''} iniciado!`);
+                    else alert('Resgate rejeitado.');
+                  }} setLoading={setLoading} />
               ))}
             </div>
           </div>
@@ -953,6 +934,51 @@ function PollingActions({ onUpdate, active, api }: { onUpdate: (d: any[]) => voi
     return () => clearInterval(interval);
   }, [active, api]);
   return null;
+}
+
+function PendingRedemptionCard({ redemption: r, api, partnerName, onUpdate, setLoading }: {
+  redemption: any; api: string; partnerName: string;
+  onUpdate: (id: string, confirmed: boolean) => void; setLoading: (v: boolean) => void;
+}) {
+  const [citizenName, setCitizenName] = useState('');
+  useEffect(() => {
+    fetch(`${api}/citizens/${r.citizenId}`).then(res => res.json()).then(j => {
+      if (j?.success) setCitizenName(j.data.name || 'N/A');
+    }).catch(() => setCitizenName('N/A'));
+  }, [r.citizenId]);
+  const duracao = r.duracaoMinutos > 0 ? (r.duracaoMinutos >= 60 ? `${r.duracaoMinutos/60}h de` : `${r.duracaoMinutos}min de`) + ` ${r.benefitDescription}` : r.benefitDescription;
+  return (
+    <div className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-2">
+      <div>
+        <p className="font-bold text-sm">{citizenName || 'Carregando...'}</p>
+        <p className="font-mono font-bold text-xs text-slate-500">{r.code}</p>
+        <p className="text-xs text-slate-400">{duracao} — <span className="text-amber-400 font-bold">{r.solidCost} SOLID</span></p>
+        {r.locationAddress && (
+          <p className="text-xs text-slate-500 mt-1">📍 {r.locationAddress.substring(0, 80)}{r.locationAddress.length > 80 ? '...' : ''}</p>
+        )}
+        {r.lat && r.lng && (
+          <a href={`https://www.google.com/maps?q=${r.lat},${r.lng}`} target="_blank" rel="noopener"
+            className="text-xs text-cyan-400 hover:text-cyan-300 underline block">🗺️ Ver no Google Maps</a>
+        )}
+        <p className="text-xs text-slate-500 mt-1">🕐 {new Date(r.createdAt).toLocaleString('pt-BR')}</p>
+      </div>
+      <div className="flex gap-2">
+        <button onClick={async () => {
+          setLoading(true);
+          const res = await fetch(`${api}/benefits/${r._id}/confirm`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ partnerName }),
+          });
+          const json = await res.json();
+          if (json.success) onUpdate(r._id, true);
+          else alert(json.error);
+          setLoading(false);
+        }} className="text-xs px-3 py-1 rounded-lg bg-green-600 font-bold hover:bg-green-500">Aprovar ✓</button>
+        <button onClick={() => onUpdate(r._id, false)}
+          className="text-xs px-3 py-1 rounded-lg bg-red-600 font-bold hover:bg-red-500">Rejeitar ✗</button>
+      </div>
+    </div>
+  );
 }
 
 function PollingRedemptions({ onUpdate, active, api, segment }: { onUpdate: (d: any[]) => void; active: boolean; api: string; segment?: string }) {
