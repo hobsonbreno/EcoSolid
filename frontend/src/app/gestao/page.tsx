@@ -124,22 +124,45 @@ export default function GestaoPage() {
         } else if (partnerName.trim() || authKey.trim().length === 8) {
           // Try partner code login
           const code = authKey.trim().toUpperCase();
+          console.log('[PartnerLogin] Buscando parceiro por código:', code);
           fetch(`${API}/partners/by-code/${code}`)
             .then(r => r.json())
             .then(json => {
+              console.log('[PartnerLogin] Resposta by-code:', json);
               if (json.success && json.data.ativo) {
-                setPartnerData(json.data);
-                localStorage.setItem('gestao_partner_id', json.data._id);
-                localStorage.setItem('gestao_partner_name', json.data.nomeFantasia);
-                localStorage.setItem('gestao_partner_segmento', json.data.segmento);
+                const p = json.data;
+                console.log('[PartnerLogin] Parceiro encontrado:', p.nomeFantasia, 'Segmento:', p.segmento);
+                setPartnerData(p);
+                localStorage.setItem('gestao_partner_id', p._id);
+                localStorage.setItem('gestao_partner_name', p.nomeFantasia);
+                localStorage.setItem('gestao_partner_segmento', p.segmento);
+                localStorage.setItem('gestao_partner_orgao', p.razaoSocial || p.nomeFantasia);
                 setRole('partner');
-                setPartnerName(json.data.nomeFantasia);
-                // Fetch partner's segment pending redemptions
-                fetch(`${API}/benefits/pending?segment=${json.data.segmento}`).then(r => r.json()).then(j => {
+                setPartnerName(p.nomeFantasia);
+                // Fetch segment pending redemptions immediately
+                console.log('[PartnerLogin] Buscando redemptions do segmento:', p.segmento);
+                fetch(`${API}/benefits/pending?segment=${encodeURIComponent(p.segmento)}`).then(r => r.json()).then(j => {
+                  console.log('[PartnerLogin] Pending redemptions:', j.data?.length || 0, 'itens');
                   if (j.success) setPendingRedemptions(j.data);
                 });
               } else {
-                alert('Código de acesso inválido ou parceiro inativo. Solicite ao admin.');
+                // Fallback: legacy fixed code
+                if (code === 'ECOSOLID2026' || code === 'ecosolid2026' || code === 'ECOSOLID') {
+                  console.log('[PartnerLogin] Usando código legado fixo');
+                  const legacyData = { _id: 'legacy', nomeFantasia: partnerName.trim() || 'Parceiro Legacy', segmento: 'Outro', razaoSocial: partnerName.trim() || 'Parceiro Legacy' };
+                  setPartnerData(legacyData);
+                  localStorage.setItem('gestao_partner_id', 'legacy');
+                  localStorage.setItem('gestao_partner_name', legacyData.nomeFantasia);
+                  localStorage.setItem('gestao_partner_segmento', 'Outro');
+                  localStorage.setItem('gestao_partner_orgao', legacyData.razaoSocial);
+                  setRole('partner');
+                  setPartnerName(legacyData.nomeFantasia);
+                  fetch(`${API}/benefits/pending`).then(r => r.json()).then(j => {
+                    if (j.success) setPendingRedemptions(j.data);
+                  });
+                } else {
+                  alert('Código de acesso inválido ou parceiro inativo. Use "ECOSOLID2026" como código legado.');
+                }
               }
             })
             .catch(() => alert('Erro ao conectar'));
@@ -798,7 +821,7 @@ export default function GestaoPage() {
 
         {/* Polling de ações pendentes */}
         <PollingActions onUpdate={setPendingActions} active={role === 'admin' && tab === 'redemptions'} api={API} />
-        <PollingActions onUpdate={setPendingActions} active={role === 'partner' && tab === 'redeem'} api={API} />
+        <PollingActions onUpdate={setPendingActions} active={role === 'partner' && tab === 'redeem'} api={API} segment={partnerData?.segmento || ''} />
         <PollingRedemptions onUpdate={setPendingRedemptions} active={role === 'partner' && tab === 'redeem'} api={API} segment={partnerData?.segmento || ''} />
 
         {/* ADMIN: Relatórios */}
@@ -958,7 +981,10 @@ export default function GestaoPage() {
             <button onClick={async () => {
               const seg = partnerData?.segmento || '';
               if (!seg) return;
-              const res = await fetch(`${API}/benefits/partner-segment/${encodeURIComponent(seg)}?status=CONFIRMADO`);
+              const url = `${API}/benefits/partner-segment/${encodeURIComponent(seg)}?status=CONFIRMADO`;
+              console.log('[Historia] Buscando:', url, 'Segmento:', seg);
+              const res = await fetch(url);
+              console.log('[Historia] Status:', res.status);
               const json = await res.json();
               if (json.success) setHistoriaResgates(json.data);
             }} className="w-full p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600">🔄 Carregar Histórico</button>
@@ -1030,20 +1056,23 @@ function Card({ title, val, icon, c }: any) {
 }
 
 // Polling helpers
-function PollingActions({ onUpdate, active, api }: { onUpdate: (d: any[]) => void; active: boolean; api: string }) {
+function PollingActions({ onUpdate, active, api, segment }: { onUpdate: (d: any[]) => void; active: boolean; api: string; segment?: string }) {
   useEffect(() => {
     if (!active) return;
     const fetchPending = async () => {
       try {
-        const res = await fetch(`${api}/impact/pending`);
+        const url = segment && segment !== 'Outro' ? `${api}/impact/pending?segment=${encodeURIComponent(segment)}` : `${api}/impact/pending`;
+        console.log('[PollingActions] Buscando:', url);
+        const res = await fetch(url);
         const json = await res.json();
+        console.log('[PollingActions] Recebidas:', json.data?.length || 0, 'ações pendentes');
         if (json?.success) onUpdate(json.data || []);
       } catch {}
     };
     fetchPending();
     const interval = setInterval(fetchPending, 10000);
     return () => clearInterval(interval);
-  }, [active, api]);
+  }, [active, api, segment]);
   return null;
 }
 

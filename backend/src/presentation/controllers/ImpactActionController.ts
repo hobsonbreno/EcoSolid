@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Param, Inject, Headers } from '@nestjs/common';
+import { Controller, Post, Body, Get, Param, Inject, Headers, Query } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { RegisterImpactUseCase } from '../../application/use-cases/RegisterImpactUseCase';
@@ -103,14 +103,35 @@ export class ImpactActionController {
     }
   }
 
+  // Mapeamento actionType → segmento do parceiro
+  private readonly actionSegmentMap: Record<string, string> = {
+    'RECYCLING': 'Outro',
+    'BLOOD_DONATION': 'Hospital',
+    'FOOD_DONATION': 'Restaurante',
+    'VOLUNTEERING': 'Outro',
+  };
+
   @Get('pending')
-  async getPending() {
+  async getPending(@Query('segment') segment?: string) {
     try {
+      console.log('[ImpactPending] Segmento recebido:', segment || '(todos)');
+      const filter: any = { status: 'PENDENTE_VALIDACAO' };
+      if (segment && segment !== 'Outro') {
+        // Filtrar ações cujo actionType mapeia para o segmento do parceiro
+        const matchingTypes = Object.entries(this.actionSegmentMap)
+          .filter(([, seg]) => seg === segment)
+          .map(([type]) => type);
+        if (matchingTypes.length > 0) {
+          filter.actionType = { $in: matchingTypes };
+          console.log('[ImpactPending] Filtrando por segmento:', segment, '→ actionTypes:', matchingTypes);
+        }
+      }
       const actions = await this.impactModel
-        .find({ status: 'PENDENTE_VALIDACAO' })
+        .find(filter)
         .sort({ timestamp: -1 })
         .lean()
         .exec();
+      console.log('[ImpactPending] Retornando', actions.length, 'ações pendentes');
       return { success: true, data: actions };
     } catch (error: any) {
       return { success: false, error: error.message };

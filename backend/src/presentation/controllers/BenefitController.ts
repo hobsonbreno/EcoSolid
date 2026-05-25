@@ -31,6 +31,7 @@ export class BenefitController {
       for (let i = 0; i < 8; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
 
       const meta = this.benefitMap[body.partnerName] || { segmento: 'Outro', orgao: body.partnerName, duracaoMinutos: 0 };
+      console.log('[BenefitRedeem] Parceiro:', body.partnerName, '→ Segmento:', meta.segmento, 'Orgao:', meta.orgao);
 
       const redemption = await this.redemptionModel.create({
         citizenId: body.citizenId,
@@ -275,6 +276,17 @@ export class BenefitController {
   }
 
   // Histórico do cidadão
+  // Debug: retorna todos os resgates sem filtro
+  @Get('debug')
+  async debugAll() {
+    try {
+      const all = await this.redemptionModel.find().sort({ createdAt: -1 }).limit(50).lean().exec();
+      return { success: true, data: all, count: all.length };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
   @Get('citizen/:citizenId')
   async getByCitizen(@Param('citizenId') citizenId: string) {
     try {
