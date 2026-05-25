@@ -62,6 +62,7 @@ export default function EcoSolidApp() {
   const [redeemCountdown, setRedeemCountdown] = useState(0);
   const [redeemDuracao, setRedeemDuracao] = useState(0);
   const [redeemExpiresAt, setRedeemExpiresAt] = useState<string | null>(null);
+  const [citizenRedemptions, setCitizenRedemptions] = useState<any[]>([]);
   const [whatsappApiKeyInput, setWhatsappApiKeyInput] = useState('');
   const [citizen, setCitizen] = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -839,6 +840,15 @@ export default function EcoSolidApp() {
     return () => clearInterval(interval);
   }, [citizen?.bloodType, view]);
 
+  // Carrega histórico de resgates do cidadão
+  useEffect(() => {
+    if (!citizen?.id || dashboardTab !== 'BENEFITS') return;
+    apiFetch(`/benefits/citizen/${citizen.id}`)
+      .then(r => r.json())
+      .then(json => { if (json.success) setCitizenRedemptions(json.data || []); })
+      .catch(() => {});
+  }, [citizen?.id, dashboardTab]);
+
   const loadHistory = async (citizenId: string) => {
     try {
       const res = await apiFetch(`/impact/citizen/${citizenId}`);
@@ -1488,6 +1498,41 @@ export default function EcoSolidApp() {
               </button>
             </div>
           </div>
+
+          {/* Meu Histórico de Resgates */}
+          {citizenRedemptions.length > 0 && (
+            <div className="space-y-3 mt-8">
+              <h3 className="text-lg font-bold text-slate-300">📋 Meu Histórico de Resgates</h3>
+              {citizenRedemptions.map((r: any) => (
+                <div key={r._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-1">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">{r.partnerIcon || '🎁'}</span>
+                        <span className="font-bold text-sm">{r.benefitDescription}</span>
+                      </div>
+                      <p className="text-xs font-mono text-slate-500">{r.code}</p>
+                      <p className="text-xs text-slate-400">{r.partnerOrgao || r.partnerName} &middot; {r.solidCost} SOLID</p>
+                      {r.locationAddress && <p className="text-xs text-slate-500">📍 {r.locationAddress.substring(0, 80)}</p>}
+                      {r.duracaoMinutos > 0 && <p className="text-xs text-slate-500">⏱️ Usado por {r.duracaoMinutos} minutos</p>}
+                      <p className="text-xs text-slate-500">{new Date(r.createdAt).toLocaleString('pt-BR')}</p>
+                      {r.txHash && (
+                        <a href={`https://sepolia.etherscan.io/tx/${r.txHash}`} target="_blank" rel="noopener"
+                          className="text-xs text-cyan-400 hover:underline font-mono">🔗 {r.txHash.substring(0, 16)}...</a>
+                      )}
+                    </div>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap ${
+                      r.status === 'CONFIRMADO' ? 'bg-emerald-500/20 text-emerald-400' :
+                      r.status === 'EXPIRADO' ? 'bg-red-500/20 text-red-400' :
+                      'bg-yellow-500/20 text-yellow-400'
+                    }`}>
+                      {r.status === 'CONFIRMADO' ? '✅ Confirmado' : r.status === 'EXPIRADO' ? '❌ Expirado' : '🟡 Pendente'}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </main>
       )}
 

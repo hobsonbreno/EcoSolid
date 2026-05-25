@@ -256,4 +256,36 @@ export class BenefitController {
       return { success: false, error: error.message };
     }
   }
+
+  // Histórico por segmento (parceiro)
+  @Get('partner-segment/:segmento')
+  async getBySegment(@Param('segmento') segmento: string, @Query('status') status?: string) {
+    try {
+      const filter: any = { partnerSegmento: segmento };
+      if (status) filter.status = status;
+      const redemptions = await this.redemptionModel
+        .find(filter)
+        .sort({ createdAt: -1 })
+        .lean()
+        .exec();
+      return { success: true, data: redemptions, count: redemptions.length };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Histórico do cidadão
+  @Get('citizen/:citizenId')
+  async getByCitizen(@Param('citizenId') citizenId: string) {
+    try {
+      const redemptions = await this.redemptionModel
+        .find({ citizenId })
+        .sort({ createdAt: -1 })
+        .lean()
+        .exec();
+      return { success: true, data: redemptions, count: redemptions.length };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
 }

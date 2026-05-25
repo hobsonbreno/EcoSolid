@@ -48,6 +48,14 @@ export default function GestaoPage() {
   const [selectedHospital, setSelectedHospital] = useState<{ nome: string; lat: number; lng: number } | null>(null);
   const [hospitalSearch, setHospitalSearch] = useState('');
   const [hospitals, setHospitals] = useState<any[]>([]);
+  // Histórico parceiro
+  const [historiaResgates, setHistoriaResgates] = useState<any[]>([]);
+  // Admin filtros
+  const [adminFilterStatus, setAdminFilterStatus] = useState('');
+  const [adminFilterSegmento, setAdminFilterSegmento] = useState('');
+  const [adminFilterDate, setAdminFilterDate] = useState('');
+  // Admin stats
+  const [adminStats, setAdminStats] = useState({ today: 0, solidToday: 0, feeToday: 0 });
 
   const apiFetch = (url: string, opts?: RequestInit) => fetch(`${API}${url}`, opts);
 
@@ -236,6 +244,7 @@ export default function GestaoPage() {
     ],
     partner: [
       { key: 'redeem', label: 'Resgates', icon: '🎁' },
+      { key: 'historia', label: 'Histórico', icon: '📋' },
       { key: 'performance', label: 'Meu Desempenho', icon: '📊' },
       { key: 'certificates', label: 'Meus Certificados', icon: '📜' },
     ],
@@ -720,15 +729,68 @@ export default function GestaoPage() {
               ))}
             </div>
 
-            {/* Resgates */}
-            <h2 className="text-lg font-bold mt-6">Histórico de Resgates</h2>
-            {allRedemptions.map((r: any) => (
-              <div key={r._id} className="p-3 rounded-xl bg-white/5 border border-white/10 flex justify-between text-sm">
-                <div>
-                  <p className="font-mono font-bold">{r.code}</p>
-                  <p className="text-xs text-slate-400">{r.partnerName} | {r.benefitDescription} | {r.solidCost} SOLID | Taxa: {r.maintenanceFee || 0}</p>
+            {/* Resgates com filtros + totalizador */}
+            <h2 className="text-lg font-bold mt-6">📊 Histórico de Resgates</h2>
+            {/* Totalizador */}
+            <div className="flex gap-3 text-xs">
+              {(() => {
+                const today = new Date(); today.setHours(0,0,0,0);
+                const todayRedeems = allRedemptions.filter((r: any) => new Date(r.createdAt) >= today && (r.status === 'CONFIRMADO' || r.status === 'validated'));
+                const solid = todayRedeems.reduce((s: number, r: any) => s + (r.solidCost||0), 0);
+                const fee = todayRedeems.reduce((s: number, r: any) => s + (r.maintenanceFee||0), 0);
+                return <><span className="px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">✅ {todayRedeems.length} hoje</span><span className="px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/20">🪙 {solid} SOLID</span><span className="px-2 py-1 rounded-full bg-slate-500/10 border border-slate-500/20">💰 Taxa: {fee} SOLID</span></>;
+              })()}
+            </div>
+            {/* Filtros */}
+            <div className="flex gap-2 flex-wrap">
+              <select value={adminFilterStatus} onChange={e => setAdminFilterStatus(e.target.value)} className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-xs outline-none focus:border-cyan-500">
+                <option value="">Todos os Status</option>
+                <option value="CONFIRMADO">Confirmado</option>
+                <option value="PENDENTE">Pendente</option>
+                <option value="EXPIRADO">Expirado</option>
+              </select>
+              <select value={adminFilterSegmento} onChange={e => setAdminFilterSegmento(e.target.value)} className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-xs outline-none focus:border-cyan-500">
+                <option value="">Todos os Segmentos</option>
+                {['Estacionamento','Hospital','Energia','Restaurante','Outro'].map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <input type="date" value={adminFilterDate} onChange={e => setAdminFilterDate(e.target.value)} className="p-2 rounded-lg bg-slate-800 border border-slate-700 text-xs outline-none focus:border-cyan-500" />
+              <button onClick={() => {
+                const filtered = allRedemptions
+                  .filter((r: any) => !adminFilterStatus || r.status === adminFilterStatus)
+                  .filter((r: any) => !adminFilterSegmento || r.partnerSegmento === adminFilterSegmento)
+                  .filter((r: any) => !adminFilterDate || r.createdAt?.startsWith(adminFilterDate));
+                const csvRows = ['Código,Cidadão,Benefício,Parceiro,Segmento,Local,Data,SOLID,Taxa,Status,txHash'];
+                filtered.forEach((r: any) => {
+                  csvRows.push([r.code, r.citizenId, `"${(r.benefitDescription||'').replace(/"/g,'""')}"`, r.partnerOrgao||r.partnerName, r.partnerSegmento||'', `"${(r.locationAddress||'').replace(/"/g,'""')}"`, r.createdAt, r.solidCost, r.maintenanceFee||0, r.status, r.txHash||''].join(','));
+                });
+                const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `resgates-ecosolid-${new Date().toISOString().slice(0,10)}.csv`;
+                a.click();
+              }} className="p-2 rounded-lg bg-cyan-600 text-xs font-bold hover:bg-cyan-500">📥 Exportar CSV</button>
+            </div>
+            {allRedemptions
+              .filter((r: any) => !adminFilterStatus || r.status === adminFilterStatus)
+              .filter((r: any) => !adminFilterSegmento || r.partnerSegmento === adminFilterSegmento)
+              .filter((r: any) => !adminFilterDate || r.createdAt?.startsWith(adminFilterDate))
+              .map((r: any) => (
+              <div key={r._id} className="p-3 rounded-xl bg-white/5 border border-white/10 space-y-1 text-sm">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <p className="font-mono font-bold text-xs">{r.code}</p>
+                    <p className="text-xs text-slate-400">{r.citizenId} &middot; {r.benefitDescription}</p>
+                    <p className="text-xs text-slate-500">{r.partnerOrgao || r.partnerName} &middot; {r.partnerSegmento || ''}</p>
+                    {r.locationAddress && <p className="text-xs text-slate-500">📍 {r.locationAddress.substring(0, 60)}</p>}
+                    <p className="text-xs text-slate-500">{r.createdAt ? new Date(r.createdAt).toLocaleString('pt-BR') : ''} &middot; {r.solidCost} SOLID &middot; Taxa: {r.maintenanceFee || 0}</p>
+                    {r.txHash && <a href={`https://sepolia.etherscan.io/tx/${r.txHash}`} target="_blank" rel="noopener" className="text-xs text-cyan-400 hover:underline font-mono">🔗 {r.txHash.substring(0, 20)}...</a>}
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded-full font-bold whitespace-nowrap ${
+                    r.status === 'CONFIRMADO' || r.status === 'validated' ? 'bg-emerald-500/20 text-emerald-400' :
+                    r.status === 'EXPIRADO' ? 'bg-red-500/20 text-red-400' :
+                    'bg-amber-500/20 text-amber-400'
+                  }`}>{r.status}</span>
                 </div>
-                <span className={`font-bold text-xs ${r.status === 'CONFIRMADO' || r.status === 'validated' ? 'text-emerald-400' : r.status === 'EXPIRADO' ? 'text-red-400' : 'text-amber-400'}`}>{r.status}</span>
               </div>
             ))}
           </div>
@@ -885,6 +947,55 @@ export default function GestaoPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* PARTNER: Histórico */}
+        {role === 'partner' && tab === 'historia' && (
+          <div className="space-y-4">
+            <h1 className="text-2xl font-black">📋 Histórico de Resgates</h1>
+            <p className="text-sm text-slate-400">{partnerData?.nomeFantasia} &middot; {partnerData?.segmento}</p>
+            <button onClick={async () => {
+              const seg = partnerData?.segmento || '';
+              if (!seg) return;
+              const res = await fetch(`${API}/benefits/partner-segment/${encodeURIComponent(seg)}?status=CONFIRMADO`);
+              const json = await res.json();
+              if (json.success) setHistoriaResgates(json.data);
+            }} className="w-full p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600">🔄 Carregar Histórico</button>
+            {historiaResgates.length === 0 && (
+              <p className="text-xs text-slate-500 text-center py-4">Clique em "Carregar Histórico" para ver os resgates confirmados do seu segmento.</p>
+            )}
+            {historiaResgates.map((r: any) => (
+              <div key={r._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-2">
+                <div className="flex justify-between">
+                  <span className="font-mono text-xs text-slate-500">{r.code}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
+                    r.status === 'CONFIRMADO' ? 'bg-emerald-500/20 text-emerald-400' :
+                    r.status === 'EXPIRADO' ? 'bg-red-500/20 text-red-400' : 'bg-slate-500/20 text-slate-500'
+                  }`}>
+                    {r.status === 'CONFIRMADO' ? '✅ Confirmado' : r.status === 'EXPIRADO' ? '❌ Expirado' : '⏰ Encerrado'}
+                  </span>
+                </div>
+                <div>
+                  <p className="font-bold text-sm">{r.benefitDescription}</p>
+                  <p className="text-xs text-slate-400">{r.partnerOrgao || r.partnerName}</p>
+                  <p className="text-xs text-amber-400 font-bold">{r.solidCost} SOLID</p>
+                  {r.locationAddress && (
+                    <p className="text-xs text-slate-500 mt-1">📍 {r.locationAddress.substring(0, 100)}</p>
+                  )}
+                  {r.lat && r.lng && (
+                    <a href={`https://www.google.com/maps?q=${r.lat},${r.lng}`} target="_blank" rel="noopener"
+                      className="text-xs text-cyan-400 hover:text-cyan-300 underline block">🗺️ Ver no Google Maps</a>
+                  )}
+                  <p className="text-xs text-slate-500 mt-1">🗓️ {new Date(r.createdAt).toLocaleString('pt-BR')}</p>
+                  {r.validatedAt && <p className="text-xs text-slate-500">✅ Validado: {new Date(r.validatedAt).toLocaleString('pt-BR')}</p>}
+                  {r.txHash && (
+                    <a href={`https://sepolia.etherscan.io/tx/${r.txHash}`} target="_blank" rel="noopener"
+                      className="text-xs text-cyan-400 hover:underline font-mono truncate block">🔗 {r.txHash.substring(0, 20)}...</a>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
