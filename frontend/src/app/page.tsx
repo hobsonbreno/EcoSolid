@@ -58,7 +58,7 @@ const base64ToBuffer = (base64: string): ArrayBuffer => {
 
 export default function EcoSolidApp() {
   const [view, setView] = useState<'LOGIN' | 'REGISTER' | 'DASHBOARD'>('LOGIN');
-  const [dashboardTab, setDashboardTab] = useState<'OVERVIEW' | 'BENEFITS' | 'CONTAS' | 'PROFILE'>('OVERVIEW');
+  const [dashboardTab, setDashboardTab] = useState<'OVERVIEW' | 'BENEFITS' | 'CONTAS' | 'PROFILE' | 'EXTRATO'>('OVERVIEW');
   const [contasWalletInput, setContasWalletInput] = useState('');
   // NOVOS: PIX, crypto e cotações
   const [pixKeyInput, setPixKeyInput] = useState('');
@@ -70,6 +70,17 @@ export default function EcoSolidApp() {
   const [evmBal, setEvmBal] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<{eth: string; brl: string} | null>(null);
   const [extrato, setExtrato] = useState<any[]>([]);
+  // Extrato PWA (aba Extrato)
+  const [extratoSubTab, setExtratoSubTab] = useState<'tudo'|'pix'|'crypto'>('tudo');
+  const [extratoData, setExtratoData] = useState<any[]>([]);
+  const [extratoResumo, setExtratoResumo] = useState<any>(null);
+  const [extratoPeriodo, setExtratoPeriodo] = useState('todos');
+  const [extratoDirecao, setExtratoDirecao] = useState('todos');
+  const [extratoBusca, setExtratoBusca] = useState('');
+  const [extratoPagina, setExtratoPagina] = useState(1);
+  const [extratoTotal, setExtratoTotal] = useState(0);
+  const [extratoTotalPages, setExtratoTotalPages] = useState(1);
+  const [extratoPolling, setExtratoPolling] = useState(0);
   const [redeemStatus, setRedeemStatus] = useState<string | null>(null);
   const [redeemCreatedAt, setRedeemCreatedAt] = useState<string | null>(null);
   const [redeemTxHash, setRedeemTxHash] = useState<string | null>(null);
@@ -861,6 +872,26 @@ export default function EcoSolidApp() {
     return () => clearInterval(interval);
   }, [citizen?.bloodType, view]);
 
+  // Extrato do cidadão (aba Extrato) — carrega + polling 30s
+  useEffect(() => {
+    if (dashboardTab !== 'EXTRATO' || !citizen?.id) return;
+    const params = new URLSearchParams({ usuarioId: citizen.id, periodo: extratoPeriodo, direcao: extratoDirecao, pagina: String(extratoPagina), limite: '50' });
+    if (extratoSubTab !== 'tudo') params.set('tipo', extratoSubTab);
+    if (extratoBusca) params.set('busca', extratoBusca);
+    const load = () => {
+      Promise.all([
+        fetch(`${BACKEND_URL}/extrato?${params}`).then(r => r.json()),
+        fetch(`${BACKEND_URL}/extrato/resumo?usuarioId=${citizen.id}&periodo=${extratoPeriodo}`).then(r => r.json()),
+      ]).then(([dataJson, resumoJson]) => {
+        if (dataJson.success) { setExtratoData(dataJson.data); setExtratoTotal(dataJson.total); setExtratoTotalPages(dataJson.totalPages); }
+        if (resumoJson.success) setExtratoResumo(resumoJson.data);
+      }).catch(() => {});
+    };
+    load();
+    const interval = setInterval(load, 30000);
+    return () => clearInterval(interval);
+  }, [dashboardTab, citizen?.id, extratoSubTab, extratoPeriodo, extratoDirecao, extratoBusca, extratoPagina, extratoPolling]);
+
   // Carrega histórico de resgates do cidadão
   useEffect(() => {
     if (!citizen?.id || dashboardTab !== 'BENEFITS') return;
@@ -1503,6 +1534,7 @@ export default function EcoSolidApp() {
         <button onClick={() => setDashboardTab('OVERVIEW')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors relative ${dashboardTab === 'OVERVIEW' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Visão Geral{bloodAlert && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 animate-pulse" />}</button>
         <button onClick={() => setDashboardTab('BENEFITS')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'BENEFITS' ? 'bg-white/10 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}>Benefícios</button>
         <button onClick={() => setDashboardTab('CONTAS')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'CONTAS' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Contas</button>
+        <button onClick={() => setDashboardTab('EXTRATO')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'EXTRATO' ? 'bg-white/10 text-cyan-400' : 'text-slate-500 hover:text-slate-300'}`}>📋 Extrato</button>
         <button onClick={() => setDashboardTab('PROFILE')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'PROFILE' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Dados Pessoais</button>
         <button onClick={handleLogout} className="ml-2 px-4 py-3 text-sm font-bold rounded-xl text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors" title="Sair da conta">Sair</button>
       </nav>
@@ -1866,6 +1898,123 @@ export default function EcoSolidApp() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+        </main>
+      )}
+
+      {dashboardTab === 'EXTRATO' && (
+        <main className="p-6 max-w-md mx-auto space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <h2 className="text-2xl font-bold">📋 Extrato</h2>
+
+          {/* Card de Saldo */}
+          {extratoResumo && (
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-2">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-xs text-slate-400">Recebido (BRL)</p>
+                  <p className="text-sm font-black text-emerald-400">+R$ {extratoResumo.brl?.totalEntradas?.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Enviado (BRL)</p>
+                  <p className="text-sm font-black text-red-400">-R$ {extratoResumo.brl?.totalSaidas?.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400">Saldo BRL</p>
+                  <p className={`text-sm font-black ${extratoResumo.brl?.saldo >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>R$ {extratoResumo.brl?.saldo?.toFixed(2)}</p>
+                </div>
+              </div>
+              <div className="flex gap-2 text-xs justify-center pt-1 border-t border-white/10">
+                <span className="text-slate-500">ETH recebido: <span className="text-emerald-400">+{extratoResumo.eth?.totalEntradas?.toFixed(4)}</span></span>
+                <span className="text-slate-500">ETH enviado: <span className="text-red-400">-{extratoResumo.eth?.totalSaidas?.toFixed(4)}</span></span>
+              </div>
+            </div>
+          )}
+
+          {/* Sub-tabs */}
+          <div className="flex gap-1">
+            {(['tudo','pix','crypto'] as const).map(st => (
+              <button key={st} onClick={() => { setExtratoSubTab(st); setExtratoPagina(1); }}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${extratoSubTab === st ? 'bg-white/10 text-slate-200' : 'text-slate-500 hover:text-slate-300'}`}>
+                {st === 'tudo' ? '📋 Tudo' : st === 'pix' ? '💰 PIX' : '🔗 Crypto'}
+              </button>
+            ))}
+          </div>
+
+          {/* Filtros */}
+          <div className="flex flex-wrap gap-2">
+            <select value={extratoPeriodo} onChange={e => { setExtratoPeriodo(e.target.value); setExtratoPagina(1); }}
+              className="p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-300">
+              <option value="hoje">Hoje</option><option value="7dias">7 dias</option><option value="30dias">30 dias</option><option value="todos">Todos</option>
+            </select>
+            <select value={extratoDirecao} onChange={e => { setExtratoDirecao(e.target.value); setExtratoPagina(1); }}
+              className="p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-300">
+              <option value="todos">Todos</option><option value="entrada">Só entradas</option><option value="saida">Só saídas</option>
+            </select>
+            <input placeholder="🔍 Buscar..." value={extratoBusca}
+              onChange={e => { setExtratoBusca(e.target.value); setExtratoPagina(1); }}
+              className="flex-1 min-w-[100px] p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm outline-none focus:border-cyan-500" />
+          </div>
+
+          {/* Lista */}
+          {extratoData.length === 0 ? (
+            <p className="text-xs text-slate-500 text-center py-8">Nenhuma transação encontrada.</p>
+          ) : (
+            <div className="space-y-1">
+              {(() => {
+                let lastDate = '';
+                const todayStr = new Date().toLocaleDateString('pt-BR');
+                const yesterdayStr = new Date(Date.now()-86400000).toLocaleDateString('pt-BR');
+                return extratoData.map((item: any, i: number) => {
+                  const itemDate = new Date(item.createdAt).toLocaleDateString('pt-BR');
+                  const showDateSep = itemDate !== lastDate;
+                  lastDate = itemDate;
+                  const isEntrada = item.direcao === 'entrada';
+                  const valorStr = `${isEntrada ? '+' : '-'}${item.moeda === 'BRL' ? 'R$ ' : ''}${item.valor?.toFixed(item.moeda === 'BRL' ? 2 : 4)}${item.moeda === 'ETH' ? ' ETH' : ''}`;
+                  return (
+                    <div key={item._id || i}>
+                      {showDateSep && (
+                        <div className="flex items-center gap-2 py-2">
+                          <div className="flex-1 border-t border-white/10" />
+                          <span className="text-xs font-bold text-slate-500 px-2">{itemDate === todayStr ? 'Hoje' : itemDate === yesterdayStr ? 'Ontem' : itemDate}</span>
+                          <div className="flex-1 border-t border-white/10" />
+                        </div>
+                      )}
+                      <div className="p-3 rounded-lg bg-slate-800/20 border border-white/5 flex items-center gap-3">
+                        <span className={`text-lg ${isEntrada ? 'text-emerald-400' : 'text-red-400'}`}>{isEntrada ? '↓' : '↑'}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-start">
+                            <p className="text-xs text-slate-300 truncate font-bold">
+                              {isEntrada ? 'Recebido de' : 'Enviado para'} {item.contraparte || '—'}
+                            </p>
+                            <span className={`text-xs font-black ml-2 ${isEntrada ? 'text-emerald-400' : 'text-red-400'}`}>{valorStr}</span>
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${item.tipo === 'pix' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}`}>{item.tipo === 'pix' ? 'PIX' : 'Crypto'}</span>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${item.status === 'concluido' || item.status === 'confirmado' ? 'bg-emerald-500/20 text-emerald-400' : item.status === 'pendente' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>{item.status}</span>
+                            <span className="text-xs text-slate-600">{new Date(item.createdAt).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>
+                          </div>
+                          {item.hash && item.tipo === 'crypto' && isRealHash(item.hash) && (
+                            <a href={`https://sepolia.etherscan.io/tx/${item.hash}`} target="_blank" rel="noopener"
+                              className="text-xs text-cyan-400 hover:underline font-mono truncate block mt-0.5">🔗 Ver na blockchain</a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
+
+          {/* Paginação */}
+          {extratoTotalPages > 1 && (
+            <div className="flex justify-between items-center pt-2">
+              <button onClick={() => setExtratoPagina(p => Math.max(1, p-1))} disabled={extratoPagina <= 1}
+                className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Anterior</button>
+              <span className="text-xs text-slate-500">Página {extratoPagina} de {extratoTotalPages} ({extratoTotal} itens)</span>
+              <button onClick={() => setExtratoPagina(p => Math.min(extratoTotalPages, p+1))} disabled={extratoPagina >= extratoTotalPages}
+                className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Próxima</button>
             </div>
           )}
         </main>
@@ -2430,6 +2579,22 @@ Verificado por EcoSolid — blockchain pública`;
                           method: 'eth_sendTransaction',
                           params: [{ from: citizen.walletAddress, to: addr, value: '0x' + (BigInt(Math.floor(parseFloat(val) * 1e18))).toString(16) }],
                         });
+                        // Persistir no MongoDB
+                        apiFetch('/extrato/crypto', {
+                          method: 'POST',
+                          body: JSON.stringify({ hash: tx, from: citizen.walletAddress, to: addr, valor: parseFloat(val), usuarioOrigemId: citizen.id, usuarioDestinoId: addr, nomeOrigem: citizen.name, network: 'sepolia' }),
+                        }).catch(() => {});
+                        // Polling para confirmar tx
+                        const checkInterval = setInterval(async () => {
+                          try {
+                            const receipt = await (window as any).ethereum.request({ method: 'eth_getTransactionReceipt', params: [tx] });
+                            if (receipt) {
+                              apiFetch(`/extrato/crypto/${tx}/confirmar`, { method: 'POST' }).catch(() => {});
+                              clearInterval(checkInterval);
+                            }
+                          } catch {}
+                        }, 5000);
+                        setTimeout(() => clearInterval(checkInterval), 120000);
                         const txLink = `https://sepolia.etherscan.io/tx/${tx}`;
                         showToast(`Tx enviada! ${tx.substring(0, 10)}... — ${txLink}`, 'success');
                         setCryptoModal(null);

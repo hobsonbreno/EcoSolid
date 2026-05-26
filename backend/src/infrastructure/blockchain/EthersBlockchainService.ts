@@ -48,8 +48,8 @@ export class EthersBlockchainService implements IBlockchainService {
     actionType: string,
   ): Promise<string> {
     if (!this.ready) {
-      const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
-      console.log(`[Blockchain] MOCK — simulando hash (sem chave privada/contrato configurado): ${mockHash}`);
+      const mockHash = 'mock-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
+      console.log(`[Blockchain] MOCK — hash simulado (sem configuração): ${mockHash}`);
       return mockHash;
     }
 
@@ -79,8 +79,8 @@ export class EthersBlockchainService implements IBlockchainService {
     solidSpent: number,
   ): Promise<string> {
     if (!this.ready) {
-      const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
-      console.log(`[Blockchain] MOCK redemption — simulando hash (sem chave/contrato): ${mockHash}`);
+      const mockHash = 'mock-redemption-' + Date.now() + '-' + Math.random().toString(36).substring(2, 10);
+      console.log(`[Blockchain] MOCK redemption — hash simulado (sem configuração): ${mockHash}`);
       return mockHash;
     }
 

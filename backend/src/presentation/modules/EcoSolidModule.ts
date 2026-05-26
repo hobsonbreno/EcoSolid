@@ -9,6 +9,7 @@ import { PartnerSchema } from '../../infrastructure/database/mongo/schemas/Partn
 import { AppointmentSchema } from '../../infrastructure/database/mongo/schemas/AppointmentSchema';
 import { PixTransactionSchema } from '../../infrastructure/database/mongo/schemas/PixTransactionSchema';
 import { CryptoTransactionSchema } from '../../infrastructure/database/mongo/schemas/CryptoTransactionSchema';
+import { CitizenPixTransactionSchema } from '../../infrastructure/database/mongo/schemas/CitizenPixTransactionSchema';
 import { MongoCitizenRepository } from '../../infrastructure/database/mongo/repositories/MongoCitizenRepository';
 import { MongoImpactActionRepository } from '../../infrastructure/database/mongo/repositories/MongoImpactActionRepository';
 import { EthersBlockchainService } from '../../infrastructure/blockchain/EthersBlockchainService';
@@ -27,6 +28,7 @@ import { PixController } from '../controllers/PixController';
 import { AppointmentController } from '../controllers/AppointmentController';
 import { DashboardController } from '../controllers/DashboardController';
 import { HistoricoController } from '../controllers/HistoricoController';
+import { CitizenExtratoController } from '../controllers/CitizenExtratoController';
 import { ICitizenRepository } from '../../domain/repositories/ICitizenRepository';
 import { IImpactActionRepository } from '../../domain/repositories/IImpactActionRepository';
 import { IBlockchainService } from '../../application/ports/IBlockchainService';
@@ -43,6 +45,7 @@ import { IBlockchainService } from '../../application/ports/IBlockchainService';
       { name: 'Partner', schema: PartnerSchema },
       { name: 'PixTransaction', schema: PixTransactionSchema },
       { name: 'CryptoTransaction', schema: CryptoTransactionSchema },
+      { name: 'CitizenPixTransaction', schema: CitizenPixTransactionSchema },
     ]),
   ],
   controllers: [
@@ -58,6 +61,7 @@ import { IBlockchainService } from '../../application/ports/IBlockchainService';
     AppointmentController,
     DashboardController,
     HistoricoController,
+    CitizenExtratoController,
   ],
   providers: [
     {
