@@ -42,6 +42,19 @@ function QRCodeDisplay({ address }: { address: string }) {
   return qrData ? <img src={qrData} alt="QR Code" className="mx-auto rounded-xl border border-white/10" /> : null;
 }
 
+// ErrorBoundary para isolar crash de uma aba sem derrubar o app todo
+class TabErrorBoundary extends React.Component<{ children: React.ReactNode; fallback?: React.ReactNode }> {
+  state = { hasError: false };
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(error: any, info: any) { console.error('[TabErrorBoundary]', error, info); }
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || <div className="p-6 text-center text-slate-400 text-sm">Erro ao carregar esta seção. <button className="underline text-amber-400" onClick={() => this.setState({ hasError: false })}>Tentar novamente</button></div>;
+    }
+    return this.props.children;
+  }
+}
+
 const apiFetch = (path: string, options?: RequestInit) =>
   fetch(`${BACKEND_URL}${path}`, {
     ...options,
@@ -129,6 +142,13 @@ export default function EcoSolidApp() {
   const [redeemExpiresAt, setRedeemExpiresAt] = useState<string | null>(null);
   const [citizenRedemptions, setCitizenRedemptions] = useState<any[]>([]);
   const [bloodAlert, setBloodAlert] = useState<{bloodType: string; hospital: string; message: string; createdAt: string} | null>(null);
+  // Modal de agendamento de doação
+  const [showAgendamento, setShowAgendamento] = useState(false);
+  const [agendamentoData, setAgendamentoData] = useState('');
+  const [agendamentoHora, setAgendamentoHora] = useState('');
+  const [agendamentoNome, setAgendamentoNome] = useState('');
+  const [agendamentoTelefone, setAgendamentoTelefone] = useState('');
+  const [agendamentoLoading, setAgendamentoLoading] = useState(false);
   const [citizen, setCitizen] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [txHistory, setTxHistory] = useState<any[]>([]);
@@ -1234,6 +1254,32 @@ export default function EcoSolidApp() {
     setLoading(false);
   };
 
+  const handleAgendamento = async () => {
+    if (!citizen?.id || !agendamentoData || !agendamentoHora) { showToast('Preencha data e horário', 'error'); return; }
+    setAgendamentoLoading(true);
+    try {
+      const res = await apiFetch('/appointments', {
+        method: 'POST',
+        body: JSON.stringify({
+          citizenId: citizen.id,
+          citizenName: citizen.name || formData.name || 'Doador',
+          date: agendamentoData,
+          time: agendamentoHora,
+          notes: `Doação de sangue - ${bloodAlert?.bloodType || ''} - ${bloodAlert?.hospital || ''}`,
+          location: bloodAlert?.hospital || 'HemoSangue CE',
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        setShowAgendamento(false);
+        setAgendamentoData(''); setAgendamentoHora(''); setAgendamentoTelefone('');
+        setBloodAlert(null);
+        showToast('✅ Agendamento confirmado! Compareça no dia e horário escolhidos.', 'success');
+      } else showToast(json.error || 'Erro ao agendar', 'error');
+    } catch (e) { console.error(e); showToast('Erro de comunicação', 'error'); }
+    setAgendamentoLoading(false);
+  };
+
   // -------------------------------------------------------------------------------------------------
   // VIEWS (Telas)
   // -------------------------------------------------------------------------------------------------
@@ -1591,6 +1637,7 @@ export default function EcoSolidApp() {
       </nav>
 
       {dashboardTab === 'BENEFITS' && (
+        <TabErrorBoundary>
         <main className="p-6 max-w-md mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <h2 className="text-2xl font-bold">🎁 Benefícios</h2>
 
@@ -1746,9 +1793,11 @@ export default function EcoSolidApp() {
           </>)}
           </div>
         </main>
+        </TabErrorBoundary>
       )}
 
       {dashboardTab === 'CONTAS' && (
+        <TabErrorBoundary>
         <main className="p-6 max-w-md mx-auto space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <h2 className="text-2xl font-bold">💳 Carteiras e Pagamentos</h2>
 
@@ -1988,9 +2037,11 @@ export default function EcoSolidApp() {
             </div>
           )}
         </main>
+        </TabErrorBoundary>
       )}
 
       {dashboardTab === 'EXTRATO' && (
+        <TabErrorBoundary>
         <main className="p-6 max-w-md mx-auto space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <h2 className="text-2xl font-bold">📋 Extrato</h2>
 
@@ -2105,9 +2156,11 @@ export default function EcoSolidApp() {
             </div>
           )}
         </main>
+        </TabErrorBoundary>
       )}
 
       {dashboardTab === 'PROFILE' && (
+        <TabErrorBoundary>
         <main className="p-6 max-w-md mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="flex flex-col items-center mt-6">
             <div className="relative">
@@ -2225,9 +2278,11 @@ export default function EcoSolidApp() {
 
           <AppointmentCard citizenId={citizen?.id} />
         </main>
+        </TabErrorBoundary>
       )}
 
       {dashboardTab === 'OVERVIEW' && (
+        <TabErrorBoundary>
         <main className="p-6 max-w-md mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <section className="p-8 rounded-3xl bg-white/5 border border-white/10 shadow-2xl relative overflow-hidden">
             {citizen.bloodType ? (
@@ -2359,6 +2414,7 @@ Verificado por EcoSolid — blockchain pública`;
             </div>
           </section>
         </main>
+        </TabErrorBoundary>
       )}
 
       {/* Modal Fullscreen Alerta de Sangue */}
@@ -2381,9 +2437,9 @@ Verificado por EcoSolid — blockchain pública`;
               onClick={(e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                setBloodAlert(null);
-                openActionModal('BLOOD_DONATION', 1000, '🩸', 'Doação de Sangue Emergencial');
-                setActionBloodType(citizen?.bloodType || '');
+                setAgendamentoNome(citizen?.name || formData.name || '');
+                setAgendamentoTelefone(citizen?.phone || formData.phone || '');
+                setShowAgendamento(true);
               }}
               className="w-full p-4 rounded-xl bg-green-500 font-bold text-white text-lg hover:bg-green-400 shadow-[0_0_30px_rgba(34,197,94,0.4)]"
             >
@@ -2397,6 +2453,50 @@ Verificado por EcoSolid — blockchain pública`;
               className="text-slate-400 hover:text-slate-300 text-sm underline"
             >
               Lembrar depois (2h)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Agendamento de Doação */}
+      {showAgendamento && (
+        <div className="fixed inset-0 bg-black/95 z-[10000] flex flex-col items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) setShowAgendamento(false); }}>
+          <div className="bg-slate-900 border border-emerald-500/30 p-6 rounded-3xl w-full max-w-md space-y-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-bold">📅 Agendar Doação</h3>
+              <button onClick={() => setShowAgendamento(false)} className="text-2xl text-slate-400">&times;</button>
+            </div>
+            <p className="text-sm text-slate-400">Escolha o melhor dia e horário para doar sangue{bloodAlert?.hospital ? ` no ${bloodAlert.hospital}` : ''}.</p>
+
+            <div className="space-y-2">
+              <label className="text-xs text-slate-400 font-bold">Data</label>
+              <input type="date" value={agendamentoData} onChange={e => setAgendamentoData(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+                className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-emerald-500 text-white" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-slate-400 font-bold">Horário</label>
+              <input type="time" value={agendamentoHora} onChange={e => setAgendamentoHora(e.target.value)}
+                className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-emerald-500 text-white" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-slate-400 font-bold">Nome</label>
+              <input type="text" value={agendamentoNome} onChange={e => setAgendamentoNome(e.target.value)}
+                placeholder="Seu nome completo"
+                className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-emerald-500 text-white" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-slate-400 font-bold">Telefone (WhatsApp)</label>
+              <input type="tel" value={agendamentoTelefone} onChange={e => setAgendamentoTelefone(e.target.value)}
+                placeholder="(85) 99999-9999"
+                className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 outline-none focus:border-emerald-500 text-white" />
+            </div>
+            <button
+              onClick={handleAgendamento}
+              disabled={agendamentoLoading || !agendamentoData || !agendamentoHora}
+              className="w-full p-4 rounded-xl bg-emerald-500 font-bold text-white text-lg hover:bg-emerald-400 disabled:opacity-50 shadow-[0_0_30px_rgba(52,211,113,0.4)]"
+            >
+              {agendamentoLoading ? '⏳ Agendando...' : '✅ Confirmar Agendamento'}
             </button>
           </div>
         </div>
