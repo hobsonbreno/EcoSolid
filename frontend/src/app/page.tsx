@@ -1706,7 +1706,10 @@ export default function EcoSolidApp() {
                 const tp = Math.ceil(filtered.length / HIST_REDEMP_PAGE_SIZE);
                 const pg = Math.min(histRedempPage, tp);
                 const pd = filtered.slice((pg-1)*HIST_REDEMP_PAGE_SIZE, pg*HIST_REDEMP_PAGE_SIZE);
-                return <div key="list"><div className="space-y-3">{pd.map((r: any) => (
+                return <div key="list"><div className="space-y-3">{pd.map((r: any) => {
+                  if (!r || typeof r !== 'object') return null;
+                  try {
+                  return (
                   <div key={r?._id || Math.random()} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-1">
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
@@ -1723,7 +1726,11 @@ export default function EcoSolidApp() {
                       </span>
                     </div>
                   </div>
-                ))}</div>
+                  );
+                  } catch {
+                    return null;
+                  }
+                })}</div>
                 {filtered.length > HIST_REDEMP_PAGE_SIZE && (
                   <div key="pagi" className="flex items-center justify-between pt-2">
                     <button onClick={() => setHistRedempPage(p => Math.max(1, p-1))} disabled={pg <= 1} className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Anterior</button>
@@ -2371,7 +2378,9 @@ Verificado por EcoSolid — blockchain pública`;
               <span className="text-red-300 font-bold text-sm">🩸 {bloodAlert.bloodType}</span>
             </div>
             <button
-              onClick={() => {
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
                 setBloodAlert(null);
                 openActionModal('BLOOD_DONATION', 1000, '🩸', 'Doação de Sangue Emergencial');
                 setActionBloodType(citizen?.bloodType || '');
