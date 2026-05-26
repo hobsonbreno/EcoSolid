@@ -70,11 +70,12 @@ export class CitizenExtratoController {
         chaveOrigem: p.chaveOrigem, chaveDestino: p.chaveDestino,
       }));
 
+      const cryptoAddr = walletAddress || usuarioId;
       const cryptoItems = cryptoData.map(c => ({
-        _id: c._id, tipo: 'crypto', direcao: c.from === usuarioId ? 'saida' : 'entrada',
+        _id: c._id, tipo: 'crypto', direcao: c.from === cryptoAddr ? 'saida' : 'entrada',
         valor: c.valor, moeda: c.moeda,
-        contraparte: c.from === usuarioId ? (c.to?.slice(0,10)+'...'+c.to?.slice(-6)) : (c.from?.slice(0,10)+'...'+c.from?.slice(-6)),
-        descricao: c.from === usuarioId ? 'Enviado para' : 'Recebido de',
+        contraparte: c.from === cryptoAddr ? (c.to?.slice(0,10)+'...'+c.to?.slice(-6)) : (c.from?.slice(0,10)+'...'+c.from?.slice(-6)),
+        descricao: c.from === cryptoAddr ? 'Enviado para' : 'Recebido de',
         status: c.status, hash: c.hash, createdAt: c.createdAt,
         from: c.from, to: c.to,
       }));
