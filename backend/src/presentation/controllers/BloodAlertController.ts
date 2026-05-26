@@ -76,7 +76,7 @@ export class BloodAlertController {
   @Get('blood/active')
   async activeAlerts() {
     try {
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
       const alerts = await this.alertModel
         .find({ createdAt: { $gte: since } })
         .sort({ createdAt: -1 })
