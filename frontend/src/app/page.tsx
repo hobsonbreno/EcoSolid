@@ -9,6 +9,10 @@ declare global {
 }
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3005';
+const SEPOLIA_RPC = process.env.NEXT_PUBLIC_SEPOLIA_RPC || 'https://ethereum-sepolia-rpc.publicnode.com';
+const isRealHash = (hash: string) => hash && hash.startsWith('0x') && hash.length === 66;
+const formatHashDisplay = (hash: string) => hash ? `${hash.slice(0, 10)}...${hash.slice(-8)}` : '';
+const formatAddress = (addr: string) => addr ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : '';
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -47,7 +51,6 @@ export default function EcoSolidApp() {
   const [view, setView] = useState<'LOGIN' | 'REGISTER' | 'DASHBOARD'>('LOGIN');
   const [dashboardTab, setDashboardTab] = useState<'OVERVIEW' | 'BENEFITS' | 'CONTAS' | 'PROFILE'>('OVERVIEW');
   const [contasWalletInput, setContasWalletInput] = useState('');
-  const [contasWalletType, setContasWalletType] = useState<'metamask' | 'binance' | 'manual'>('metamask');
   // NOVOS: PIX, crypto e cotações
   const [pixKeyInput, setPixKeyInput] = useState('');
   const [pixKeyType, setPixKeyType] = useState('cpf');
@@ -56,6 +59,8 @@ export default function EcoSolidApp() {
   const [quotes, setQuotes] = useState<{ eth: number | null; btc: number | null }>({ eth: null, btc: null });
   const [metaMaskBal, setMetaMaskBal] = useState<string | null>(null);
   const [evmBal, setEvmBal] = useState<string | null>(null);
+  const [walletBalance, setWalletBalance] = useState<{eth: string; brl: string} | null>(null);
+  const [extrato, setExtrato] = useState<any[]>([]);
   const [redeemStatus, setRedeemStatus] = useState<string | null>(null);
   const [redeemCreatedAt, setRedeemCreatedAt] = useState<string | null>(null);
   const [redeemTxHash, setRedeemTxHash] = useState<string | null>(null);
@@ -975,6 +980,78 @@ export default function EcoSolidApp() {
     return () => clearInterval(interval);
   }, []);
 
+  // Auto-fetch saldo ETH ao entrar na aba Contas
+  useEffect(() => {
+    if (dashboardTab !== 'CONTAS' || !citizen?.walletAddress) return;
+    const fetchBal = async () => {
+      try {
+        const rpcRes = await fetch(SEPOLIA_RPC, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [citizen.walletAddress, 'latest'], id: 1 }),
+        });
+        const rpcJson = await rpcRes.json();
+        const eth = (Number(BigInt(rpcJson.result || '0')) / 1e18).toFixed(4);
+        const brl = quotes.eth ? (parseFloat(eth) * quotes.eth).toFixed(2) : '0.00';
+        setWalletBalance({ eth, brl });
+      } catch {}
+    };
+    fetchBal();
+  }, [dashboardTab, citizen?.walletAddress, quotes.eth]);
+
+  // Auto-fetch extrato ao entrar na aba Contas
+  useEffect(() => {
+    if (dashboardTab !== 'CONTAS' || !citizen?.id) return;
+    const fetchExtrato = async () => {
+      try {
+        const [actionsRes, redemptionsRes] = await Promise.all([
+          fetch(`${BACKEND_URL}/impact/citizen/${citizen.id}`),
+          fetch(`${BACKEND_URL}/benefits/citizen/${citizen.id}`),
+        ]);
+        const actionsJson = await actionsRes.json();
+        const redemptionsJson = await redemptionsRes.json();
+
+        const iconMap: Record<string, string> = {
+          'BLOOD_DONATION': '🩸', 'RECYCLING': '♻️', 'FOOD_DONATION': '🍽️',
+          'VOLUNTEERING': '🤝', 'LEGACY_MINT': '🪙',
+        };
+        const statusBadgeMap: Record<string, string> = {
+          'REGISTRADO': 'green', 'VALIDADO': 'green', 'CONFIRMADO': 'green',
+          'PENDENTE_VALIDACAO': 'yellow', 'REJEITADO': 'red', 'EXPIRADO': 'red',
+        };
+
+        const actions = (actionsJson.data || []).map((a: any) => ({
+          icone: iconMap[a.actionType] || '📋',
+          descricao: a.actionType === 'BLOOD_DONATION' ? `Doação de Sangue${a.bloodType ? ' (' + a.bloodType + ')' : ''}` :
+                    a.actionType === 'RECYCLING' ? 'Reciclagem' :
+                    a.actionType === 'FOOD_DONATION' ? 'Doação de Alimentos' :
+                    a.actionType === 'VOLUNTEERING' ? 'Voluntariado' : a.actionType || 'Ação',
+          valor: `+${a.pointsEarned || 0} SOLID`,
+          data: new Date(a.timestamp || a.createdAt).toLocaleString('pt-BR'),
+          status: a.status || 'REGISTRADO',
+          statusBadge: statusBadgeMap[a.status] || 'yellow',
+          txHash: a.txHash || null,
+          ts: new Date(a.timestamp || a.createdAt).getTime(),
+        }));
+
+        const redemptions = (redemptionsJson.data || []).map((r: any) => ({
+          icone: '🎁',
+          descricao: r.benefitDescription || 'Resgate',
+          valor: `-${r.solidCost || 0} SOLID`,
+          data: new Date(r.createdAt).toLocaleString('pt-BR'),
+          status: r.status || 'PENDENTE',
+          statusBadge: statusBadgeMap[r.status] || 'yellow',
+          txHash: r.txHash || null,
+          ts: new Date(r.createdAt).getTime(),
+        }));
+
+        const combined = [...actions, ...redemptions].sort((a, b) => b.ts - a.ts);
+        setExtrato(combined);
+      } catch {}
+    };
+    fetchExtrato();
+  }, [dashboardTab, citizen?.id]);
+
   // Countdown do resgate (30 min pendente OU timer de uso após confirmação)
   useEffect(() => {
     if (redeemStatus === 'PENDENTE' && redeemCreatedAt) {
@@ -1555,7 +1632,123 @@ export default function EcoSolidApp() {
             </div>
           )}
 
-          {/* CARD 1: Chave PIX */}
+          {/* CARD 1: Carteira Vinculada (unificado: MetaMask + manual EVM) */}
+          <div className="p-4 rounded-xl bg-white/5 border border-cyan-500/30 space-y-3">
+            <h3 className="text-sm font-bold text-cyan-400">
+              {citizen?.walletAddress ? '🔗 Carteira Vinculada' : '🔗 Vincular Carteira'}
+            </h3>
+
+            {citizen?.walletAddress ? (
+              /* Modo: carteira já vinculada */
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold">Vinculada ✓</span>
+                  <span className="text-xs text-slate-400">via Google / MetaMask</span>
+                </div>
+                <p className="font-mono text-sm text-cyan-300 break-all">{citizen.walletAddress}</p>
+                {walletBalance ? (
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-slate-300">Saldo: <span className="text-emerald-400 font-bold">{walletBalance.eth} ETH</span></p>
+                    {quotes.eth && <span className="text-xs text-slate-500">~R$ {walletBalance.brl}</span>}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500">Buscando saldo...</p>
+                )}
+                <div className="flex gap-2">
+                  <a href={`https://sepolia.etherscan.io/address/${citizen.walletAddress}`} target="_blank" rel="noopener"
+                    className="flex-1 text-center p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">🔍 Etherscan</a>
+                  <button onClick={async () => {
+                    setLoading(true);
+                    try {
+                      const rpcRes = await fetch(SEPOLIA_RPC, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [citizen.walletAddress, 'latest'], id: 1 }) });
+                      const rpcJson = await rpcRes.json();
+                      const eth = (Number(BigInt(rpcJson.result || '0')) / 1e18).toFixed(4);
+                      const brl = quotes.eth ? (parseFloat(eth) * quotes.eth).toFixed(2) : '0.00';
+                      setWalletBalance({ eth, brl });
+                      showToast('Saldo atualizado!', 'success');
+                    } catch { showToast('Erro ao buscar saldo', 'error'); }
+                    setLoading(false);
+                  }} disabled={loading} className="p-2 rounded-lg bg-cyan-600 text-xs font-bold hover:bg-cyan-500">🔄 Atualizar</button>
+                </div>
+                <button
+                  onClick={() => {
+                    setWalletBalance(null);
+                    setMetaMaskBal(null);
+                    setCitizen({ ...citizen, walletAddress: '' });
+                    apiFetch(`/citizens/${citizen.id}/wallet`, { method: 'PATCH', body: JSON.stringify({ walletAddress: '', type: 'remove' }) });
+                  }}
+                  className="w-full p-2 rounded-lg bg-red-500/20 text-red-400 text-xs font-bold hover:bg-red-500/30"
+                >✕ Desconectar Carteira</button>
+              </div>
+            ) : (
+              /* Modo: sem carteira vinculada — campo manual sempre visível */
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">Digite seu endereço de carteira ou conecte via MetaMask. Funciona com MetaMask, Binance, Trust Wallet, Ledger ou qualquer carteira EVM.</p>
+                <input placeholder="0x... (endereço da carteira)"
+                  value={contasWalletInput} onChange={e => setContasWalletInput(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-cyan-500 font-mono text-sm" />
+                {evmBal && (
+                  <p className="text-xs text-slate-400">Saldo consultado: <span className="text-emerald-400 font-bold">{evmBal} ETH</span> {quotes.eth ? <span className="text-slate-500">(~R$ {(parseFloat(evmBal) * quotes.eth).toFixed(2)})</span> : null}</p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      const addr = contasWalletInput.trim();
+                      if (!addr.startsWith('0x') || addr.length !== 42) { showToast('Endereço inválido (0x... 42 caracteres)', 'error'); return; }
+                      setLoading(true);
+                      try {
+                        const rpcRes = await fetch(SEPOLIA_RPC, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [addr, 'latest'], id: 1 }) });
+                        const rpcJson = await rpcRes.json();
+                        setEvmBal((Number(BigInt(rpcJson.result || '0')) / 1e18).toFixed(4));
+                        showToast('Saldo consultado!', 'success');
+                      } catch { showToast('Erro ao buscar saldo', 'error'); }
+                      setLoading(false);
+                    }}
+                    disabled={loading || !contasWalletInput.trim()}
+                    className="flex-1 p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600"
+                  >🔍 Ver Saldo</button>
+                  <button
+                    onClick={async () => {
+                      const addr = contasWalletInput.trim();
+                      if (!addr.startsWith('0x') || addr.length !== 42) { showToast('Endereço inválido', 'error'); return; }
+                      setLoading(true);
+                      const res = await apiFetch(`/citizens/${citizen.id}/wallet`, { method: 'PATCH', body: JSON.stringify({ walletAddress: addr, type: 'manual' }) });
+                      const json = await res.json();
+                      if (json.success) { setCitizen(json.data); setContasWalletInput(''); showToast('Carteira vinculada! ✓', 'success'); }
+                      else showToast(json.error, 'error');
+                      setLoading(false);
+                    }}
+                    disabled={loading || !contasWalletInput.trim()}
+                    className="p-2 rounded-lg bg-cyan-600 text-xs font-bold hover:bg-cyan-500"
+                  >💾 Vincular</button>
+                </div>
+                {/* Botão extra MetaMask se detectado */}
+                {typeof window !== 'undefined' && (window as any).ethereum && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
+                        const wallet = accounts[0];
+                        setLoading(true);
+                        try {
+                          const balance = await (window as any).ethereum.request({ method: 'eth_getBalance', params: [wallet, 'latest'] });
+                          setMetaMaskBal((Number(balance) / 1e18).toFixed(4));
+                        } catch {}
+                        const res = await apiFetch(`/citizens/${citizen.id}/wallet`, { method: 'PATCH', body: JSON.stringify({ walletAddress: wallet, type: 'metamask' }) });
+                        const json = await res.json();
+                        if (json.success) setCitizen(json.data); else showToast(json.error, 'error');
+                        setLoading(false);
+                      } catch { showToast('Conexão cancelada pelo usuário', 'error'); }
+                    }}
+                    disabled={loading}
+                    className="w-full p-3 rounded-xl bg-orange-500/20 text-orange-400 font-bold text-sm hover:bg-orange-500/30"
+                  >🦊 Conectar MetaMask</button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* CARD 2: Chave PIX */}
           <div className="p-4 rounded-xl bg-green-500/10 border border-green-500/30 space-y-3">
             <h3 className="text-sm font-bold text-green-400">💚 Chave PIX (Dinheiro Real R$)</h3>
             {citizen?.pixKey ? (
@@ -1565,176 +1758,40 @@ export default function EcoSolidApp() {
                     <p className="text-xs text-slate-400">{citizen.pixKeyType?.toUpperCase() || 'Chave'}</p>
                     <p className="font-mono text-sm text-green-300 truncate w-48">{citizen.pixKey}</p>
                   </div>
-                  <button
-                    onClick={() => { navigator.clipboard.writeText(citizen.pixKey || ''); showToast('Chave PIX copiada!', 'success'); }}
-                    className="text-xs px-2 py-1 rounded bg-green-600 font-bold hover:bg-green-500"
-                  >Copiar</button>
+                  <button onClick={() => { navigator.clipboard.writeText(citizen.pixKey || ''); showToast('Chave PIX copiada!', 'success'); }}
+                    className="text-xs px-2 py-1 rounded bg-green-600 font-bold hover:bg-green-500">Copiar</button>
                 </div>
-                <p className="text-xs text-slate-500 flex items-center gap-1">ℹ️ Saldo disponível no seu banco</p>
                 <div className="flex gap-2">
-                  <button onClick={() => setPixQrModal({ type: 'receive' })}
-                    className="flex-1 p-2 rounded-lg bg-green-600 text-xs font-bold hover:bg-green-500">📥 Receber PIX</button>
-                  <button onClick={() => setPixQrModal({ type: 'send' })}
-                    className="flex-1 p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">📤 Enviar PIX</button>
+                  <button onClick={() => setPixQrModal({ type: 'receive' })} className="flex-1 p-2 rounded-lg bg-green-600 text-xs font-bold hover:bg-green-500">📥 Receber PIX</button>
+                  <button onClick={() => setPixQrModal({ type: 'send' })} className="flex-1 p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">📤 Enviar PIX</button>
                 </div>
               </div>
             ) : (
               <div className="space-y-2">
                 <p className="text-xs text-slate-400">Cadastre sua chave PIX para receber pagamentos em dinheiro real (R$).</p>
-                <select value={pixKeyType} onChange={e => setPixKeyType(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-green-500 text-sm">
+                <select value={pixKeyType} onChange={e => setPixKeyType(e.target.value)} className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-green-500 text-sm">
                   <option value="cpf">CPF</option>
                   <option value="email">E-mail</option>
                   <option value="phone">Telefone</option>
                   <option value="random">Chave Aleatória</option>
                 </select>
-                <input placeholder={pixKeyType === 'cpf' ? '000.000.000-00' : pixKeyType === 'email' ? 'seu@email.com' : pixKeyType === 'phone' ? '(85) 9XXXX-XXXX' : 'Chave aleatória (36 caracteres)'}
-                  value={pixKeyInput} onChange={e => setPixKeyInput(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-green-500 text-sm" />
-                <button
-                  onClick={async () => {
-                    const key = pixKeyInput.trim();
-                    if (!key) { showToast('Digite sua chave PIX', 'error'); return; }
-                    setLoading(true);
-                    const res = await apiFetch(`/citizens/${citizen.id}`, {
-                      method: 'PATCH',
-                      body: JSON.stringify({ pixKey: key, pixKeyType }),
-                    });
-                    const json = await res.json();
-                    if (json.success) { setCitizen(json.data); setPixKeyInput(''); showToast('Chave PIX salva!', 'success'); }
-                    else showToast(json.error, 'error');
-                    setLoading(false);
-                  }}
-                  disabled={loading}
-                  className="w-full p-3 rounded-xl bg-green-600 font-bold text-sm hover:bg-green-500 disabled:opacity-50"
-                >💾 Salvar Chave PIX</button>
-              </div>
-            )}
-          </div>
-
-          {/* CARD 2: MetaMask */}
-          <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/30 space-y-3">
-            <h3 className="text-sm font-bold text-orange-400">🦊 MetaMask</h3>
-            {typeof window !== 'undefined' && (window as any).ethereum?.isMetaMask ? (
-              citizen?.walletAddress ? (
-                <div className="space-y-2">
-                  <p className="font-mono text-xs text-orange-300 truncate">{citizen.walletAddress}</p>
-                  {metaMaskBal && <p className="text-xs text-slate-400">Saldo: <span className="text-emerald-400 font-bold">{metaMaskBal} ETH</span> {quotes.eth ? <span className="text-slate-500">(~R${(parseFloat(metaMaskBal) * quotes.eth).toFixed(2)})</span> : null}</p>}
-                  <div className="flex gap-2">
-                    <a href={`https://sepolia.etherscan.io/address/${citizen.walletAddress}`} target="_blank" rel="noopener"
-                      className="flex-1 text-center p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">🔍 Etherscan</a>
-                    <button
-                      onClick={() => {
-                        // Desconectar: limpa APENAS estado local, nunca localStorage
-                        setMetaMaskBal(null);
-                        setCitizen({ ...citizen, walletAddress: '' });
-                        apiFetch(`/citizens/${citizen.id}/wallet`, { method: 'PATCH', body: JSON.stringify({ walletAddress: '', type: 'remove' }) });
-                      }}
-                      className="flex-1 p-2 rounded-lg bg-red-600 text-xs font-bold hover:bg-red-500">Desconectar</button>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => setCryptoModal({ type: 'send' })}
-                      className="flex-1 p-2 rounded-lg bg-orange-600 text-xs font-bold hover:bg-orange-500">📤 Enviar Cripto</button>
-                    <button onClick={() => setCryptoModal({ type: 'receive' })}
-                      className="flex-1 p-2 rounded-lg bg-slate-600 text-xs font-bold hover:bg-slate-500">📥 Receber Cripto</button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={async () => {
-                    try {
-                      const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
-                      const wallet = accounts[0];
-                      setLoading(true);
-                      // Buscar saldo
-                      try {
-                        const balance = await (window as any).ethereum.request({ method: 'eth_getBalance', params: [wallet, 'latest'] });
-                        const ethVal = (Number(balance) / 1e18).toFixed(4);
-                        setMetaMaskBal(ethVal);
-                      } catch {}
-                      // Salvar no backend
-                      const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ walletAddress: wallet, type: 'metamask' }),
-                      });
-                      const json = await res.json();
-                      if (json.success) setCitizen(json.data); else showToast(json.error, 'error');
-                      setLoading(false);
-                    } catch { showToast('Conexão cancelada pelo usuário', 'error'); }
-                  }}
-                  disabled={loading}
-                  className="w-full p-3 rounded-xl bg-orange-500/30 text-orange-400 font-bold hover:bg-orange-500/40"
-                >🦊 Conectar MetaMask</button>
-              )
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs text-slate-400">MetaMask não detectada neste navegador.</p>
-                <div className="flex gap-2">
-                  <a href="https://metamask.io/download/" target="_blank" rel="noopener"
-                    className="flex-1 text-center p-2 rounded-lg bg-orange-500/20 text-xs font-bold text-orange-400 hover:bg-orange-500/30">🧩 Extensão Chrome</a>
-                  <a href="https://play.google.com/store/apps/details?id=io.metamask" target="_blank" rel="noopener"
-                    className="flex-1 text-center p-2 rounded-lg bg-orange-500/20 text-xs font-bold text-orange-400 hover:bg-orange-500/30">📱 App Android</a>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* CARD 3: Carteira EVM (Binance/Trust/etc) */}
-          <div className="p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 space-y-3">
-            <h3 className="text-sm font-bold text-yellow-400">🟡 Carteira EVM (Binance, Trust, etc.)</h3>
-            <p className="text-xs text-slate-400">Insira um endereço de carteira para ver o saldo.</p>
-            <input placeholder="0x... (endereço EVM)"
-              value={contasWalletInput} onChange={e => setContasWalletInput(e.target.value)}
-              className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-yellow-500 font-mono text-sm" />
-            {evmBal && <p className="text-xs text-slate-400">Saldo: <span className="text-emerald-400 font-bold">{evmBal} ETH</span> {quotes.eth ? <span className="text-slate-500">(~R${(parseFloat(evmBal) * quotes.eth).toFixed(2)})</span> : null}</p>}
-            <div className="flex gap-2">
-              <button
-                onClick={async () => {
-                  const addr = contasWalletInput.trim();
-                  if (!addr.startsWith('0x') || addr.length !== 42) { showToast('Endereço inválido (0x... 42 caracteres)', 'error'); return; }
+                <input placeholder={pixKeyType === 'cpf' ? '000.000.000-00' : pixKeyType === 'email' ? 'seu@email.com' : pixKeyType === 'phone' ? '(85) 9XXXX-XXXX' : 'Chave aleatória'}
+                  value={pixKeyInput} onChange={e => setPixKeyInput(e.target.value)} className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-green-500 text-sm" />
+                <button onClick={async () => {
+                  const key = pixKeyInput.trim();
+                  if (!key) { showToast('Digite sua chave PIX', 'error'); return; }
                   setLoading(true);
-                  try {
-                    // Buscar saldo via RPC público (JSON-RPC)
-                    const rpcRes = await fetch('https://ethereum-sepolia-rpc.publicnode.com', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [addr, 'latest'], id: 1 }),
-                    });
-                    const rpcJson = await rpcRes.json();
-                    const balanceWei = Number(rpcJson.result || '0');
-                    setEvmBal((balanceWei / 1e18).toFixed(4));
-                    showToast('Saldo atualizado!', 'success');
-                  } catch { showToast('Erro ao buscar saldo', 'error'); }
-                  setLoading(false);
-                }}
-                disabled={loading || !contasWalletInput.trim()}
-                className="flex-1 p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600"
-              >🔍 Ver Saldo</button>
-              <button
-                onClick={async () => {
-                  const addr = contasWalletInput.trim();
-                  if (!addr.startsWith('0x') || addr.length !== 42) { showToast('Endereço inválido', 'error'); return; }
-                  setLoading(true);
-                  const res = await apiFetch(`/citizens/${citizen.id}/wallet`, {
-                    method: 'PATCH',
-                    body: JSON.stringify({ walletAddress: addr, type: 'evm' }),
-                  });
+                  const res = await apiFetch(`/citizens/${citizen.id}`, { method: 'PATCH', body: JSON.stringify({ pixKey: key, pixKeyType }) });
                   const json = await res.json();
-                  if (json.success) { setCitizen(json.data); setContasWalletInput(''); showToast('Endereço vinculado!', 'success'); }
+                  if (json.success) { setCitizen(json.data); setPixKeyInput(''); showToast('Chave PIX salva!', 'success'); }
                   else showToast(json.error, 'error');
                   setLoading(false);
-                }}
-                disabled={loading || !contasWalletInput.trim()}
-                className="p-2 rounded-lg bg-yellow-600 text-xs font-bold hover:bg-yellow-500"
-              >💾 Vincular</button>
-            </div>
-            {citizen?.walletAddress && (
-              <a href={`https://sepolia.etherscan.io/address/${citizen.walletAddress}`} target="_blank" rel="noopener"
-                className="block text-center p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">🔍 Ver no Etherscan</a>
+                }} disabled={loading} className="w-full p-3 rounded-xl bg-green-600 font-bold text-sm hover:bg-green-500 disabled:opacity-50">💾 Salvar Chave PIX</button>
+              </div>
             )}
           </div>
 
-          {/* CARD 4: SOLID */}
+          {/* CARD 3: SOLID */}
           <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 space-y-3">
             <h3 className="text-sm font-bold text-emerald-400">🪙 SOLID (Token EcoSolid)</h3>
             <div className="flex gap-4">
@@ -1750,9 +1807,52 @@ export default function EcoSolidApp() {
               </div>
             </div>
             <p className="text-xs text-slate-500 text-center">1 SOLID ≈ R$ 0,10</p>
-            <button onClick={() => setDashboardTab('OVERVIEW')}
-              className="w-full p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">📊 Ver Histórico</button>
+            <button onClick={() => setDashboardTab('OVERVIEW')} className="w-full p-2 rounded-lg bg-slate-700 text-xs font-bold hover:bg-slate-600">📊 Ver Histórico</button>
           </div>
+
+          {/* Extrato de Transações */}
+          {citizen?.id && (
+            <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3">
+              <h3 className="text-sm font-bold text-slate-300">📋 Extrato de Transações</h3>
+              {extrato.length === 0 ? (
+                <p className="text-xs text-slate-500 text-center py-4">Nenhuma transação encontrada.</p>
+              ) : (
+                <div className="space-y-2">
+                  {extrato.map((item: any, i: number) => (
+                    <div key={i} className={`p-3 rounded-lg border ${item.valor.startsWith('+') ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-300">
+                            <span className="mr-1">{item.icone}</span>
+                            {item.descricao}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">{item.data}</p>
+                        </div>
+                        <span className={`text-sm font-black ml-2 ${item.valor.startsWith('+') ? 'text-emerald-400' : 'text-red-400'}`}>{item.valor}</span>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${item.statusBadge === 'green' ? 'bg-emerald-500/20 text-emerald-400' : item.statusBadge === 'yellow' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
+                          {item.status}
+                        </span>
+                        {item.txHash && (
+                          isRealHash(item.txHash) ? (
+                            <a href={`https://sepolia.etherscan.io/tx/${item.txHash}`} target="_blank" rel="noopener"
+                              className="text-xs text-cyan-400 hover:text-cyan-300 underline font-mono truncate">
+                              Ver na blockchain ✓
+                            </a>
+                          ) : (
+                            <span className="text-xs text-yellow-500 flex items-center gap-1">
+                              ⚠️ Hash simulado
+                            </span>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </main>
       )}
 

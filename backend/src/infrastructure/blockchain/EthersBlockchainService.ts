@@ -49,7 +49,7 @@ export class EthersBlockchainService implements IBlockchainService {
   ): Promise<string> {
     if (!this.ready) {
       const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
-      console.log(`[Blockchain] MOCK (não inicializado): ${mockHash}`);
+      console.log(`[Blockchain] MOCK — simulando hash (sem chave privada/contrato configurado): ${mockHash}`);
       return mockHash;
     }
 
@@ -59,9 +59,9 @@ export class EthersBlockchainService implements IBlockchainService {
       console.log(`[Blockchain] registerAction — actionId: ${actionIdBytes}, citizen: ${addr}, points: ${points}, type: ${actionType}`);
 
       const tx = await this.contract.registerAction(actionIdBytes, addr, points, actionType);
-      console.log(`[Blockchain] Tx enviada: ${tx.hash}`);
+      console.log(`[Blockchain] Transação real enviada: ${tx.hash}`);
       await tx.wait();
-      console.log(`[Blockchain] Tx confirmada: ${tx.hash}`);
+      console.log(`[Blockchain] Transação real confirmada: ${tx.hash}`);
       return tx.hash;
     } catch (error: any) {
       console.error('[Blockchain] Falha ao registrar ação na blockchain:', error.message);
@@ -80,7 +80,7 @@ export class EthersBlockchainService implements IBlockchainService {
   ): Promise<string> {
     if (!this.ready) {
       const mockHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
-      console.log(`[Blockchain] MOCK redemption: ${mockHash}`);
+      console.log(`[Blockchain] MOCK redemption — simulando hash (sem chave/contrato): ${mockHash}`);
       return mockHash;
     }
 
@@ -90,9 +90,9 @@ export class EthersBlockchainService implements IBlockchainService {
       console.log(`[Blockchain] confirmRedemption — id: ${redemptionIdBytes}, citizen: ${addr}, benefit: ${benefit}, solid: ${solidSpent}`);
 
       const tx = await this.contract.confirmRedemption(redemptionIdBytes, addr, benefit, solidSpent);
-      console.log(`[Blockchain] Tx enviada: ${tx.hash}`);
+      console.log(`[Blockchain] Transação real enviada: ${tx.hash}`);
       await tx.wait();
-      console.log(`[Blockchain] Tx confirmada: ${tx.hash}`);
+      console.log(`[Blockchain] Transação real confirmada: ${tx.hash}`);
       return tx.hash;
     } catch (error: any) {
       console.error('[Blockchain] Falha ao confirmar resgate na blockchain:', error.message);
