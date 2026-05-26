@@ -7,6 +7,8 @@ import { BenefitRedemptionSchema } from '../../infrastructure/database/mongo/sch
 import { PartnerInterestSchema } from '../../infrastructure/database/mongo/schemas/PartnerInterestSchema';
 import { PartnerSchema } from '../../infrastructure/database/mongo/schemas/PartnerSchema';
 import { AppointmentSchema } from '../../infrastructure/database/mongo/schemas/AppointmentSchema';
+import { PixTransactionSchema } from '../../infrastructure/database/mongo/schemas/PixTransactionSchema';
+import { CryptoTransactionSchema } from '../../infrastructure/database/mongo/schemas/CryptoTransactionSchema';
 import { MongoCitizenRepository } from '../../infrastructure/database/mongo/repositories/MongoCitizenRepository';
 import { MongoImpactActionRepository } from '../../infrastructure/database/mongo/repositories/MongoImpactActionRepository';
 import { EthersBlockchainService } from '../../infrastructure/blockchain/EthersBlockchainService';
@@ -24,6 +26,7 @@ import { PartnerController } from '../controllers/PartnerController';
 import { PixController } from '../controllers/PixController';
 import { AppointmentController } from '../controllers/AppointmentController';
 import { DashboardController } from '../controllers/DashboardController';
+import { HistoricoController } from '../controllers/HistoricoController';
 import { ICitizenRepository } from '../../domain/repositories/ICitizenRepository';
 import { IImpactActionRepository } from '../../domain/repositories/IImpactActionRepository';
 import { IBlockchainService } from '../../application/ports/IBlockchainService';
@@ -38,6 +41,8 @@ import { IBlockchainService } from '../../application/ports/IBlockchainService';
       { name: 'PartnerInterest', schema: PartnerInterestSchema },
       { name: 'Appointment', schema: AppointmentSchema },
       { name: 'Partner', schema: PartnerSchema },
+      { name: 'PixTransaction', schema: PixTransactionSchema },
+      { name: 'CryptoTransaction', schema: CryptoTransactionSchema },
     ]),
   ],
   controllers: [
@@ -52,6 +57,7 @@ import { IBlockchainService } from '../../application/ports/IBlockchainService';
     PixController,
     AppointmentController,
     DashboardController,
+    HistoricoController,
   ],
   providers: [
     {

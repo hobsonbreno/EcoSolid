@@ -69,6 +69,18 @@ export default function GestaoPage() {
   const [redeemDateFilter, setRedeemDateFilter] = useState('hoje');
   const [redeemPage, setRedeemPage] = useState(1);
   const PAGE_SIZE = 100;
+  const HIST_PAGE_SIZE = 50;
+  // Histórico: extrato PIX/Crypto/Extrato Geral
+  const [historicoSubTab, setHistoricoSubTab] = useState<'extrato'|'pix'|'crypto'>('extrato');
+  const [historicoData, setHistoricoData] = useState<any[]>([]);
+  const [historicoResumo, setHistoricoResumo] = useState<any>(null);
+  const [historicoTotal, setHistoricoTotal] = useState(0);
+  const [historicoTotalPages, setHistoricoTotalPages] = useState(1);
+  const [historicoPagina, setHistoricoPagina] = useState(1);
+  const [historicoPeriodo, setHistoricoPeriodo] = useState('todos');
+  const [historicoTipo, setHistoricoTipo] = useState('todos');
+  const [historicoDirecao, setHistoricoDirecao] = useState('todos');
+  const [historicoBusca, setHistoricoBusca] = useState('');
   // Admin stats
   const [adminStats, setAdminStats] = useState({ today: 0, solidToday: 0, feeToday: 0 });
 
@@ -254,16 +266,22 @@ export default function GestaoPage() {
     }
   }, [role, tab]);
 
-  // Auto-load histórico do parceiro
+  // Auto-load histórico (extrato PIX/Crypto)
   useEffect(() => {
     if (role !== 'partner' || tab !== 'historia') return;
-    const seg = partnerData?.segmento || '';
-    if (!seg) return;
-    const url = `${API}/benefits/partner-segment/${encodeURIComponent(seg)}?status=CONFIRMADO`;
-    fetch(url).then(r => r.json()).then(json => {
-      if (json.success) setHistoriaResgates(json.data);
+    const pn = partnerName || '';
+    const params = new URLSearchParams({ partnerName: pn, periodo: historicoPeriodo, pagina: String(historicoPagina), limite: String(HIST_PAGE_SIZE), tipo: historicoTipo, direcao: historicoDirecao });
+    if (historicoBusca) params.set('busca', historicoBusca);
+    const endpoint = historicoSubTab === 'extrato' ? 'extrato' : historicoSubTab;
+    fetch(`${API}/historico/${endpoint}?${params}`).then(r => r.json()).then(json => {
+      if (json.success) {
+        setHistoricoData(json.data);
+        setHistoricoTotal(json.total);
+        setHistoricoTotalPages(json.totalPages);
+        if (json.resumo) setHistoricoResumo(json.resumo);
+      }
     }).catch(() => {});
-  }, [role, tab, partnerData?.segmento]);
+  }, [role, tab, historicoSubTab, historicoPeriodo, historicoTipo, historicoDirecao, historicoBusca, historicoPagina, partnerName]);
 
   // Auto-load desempenho do parceiro
   useEffect(() => {
@@ -1288,45 +1306,129 @@ export default function GestaoPage() {
           </div>
         )}
 
-        {/* PARTNER: Histórico */}
+        {/* PARTNER: Histórico — Extrato PIX / Crypto / Geral */}
         {role === 'partner' && tab === 'historia' && (
           <div className="space-y-4">
-            <h1 className="text-2xl font-black">📋 Histórico de Resgates</h1>
-            <p className="text-sm text-slate-400">{partnerData?.nomeFantasia} &middot; {partnerData?.segmento}</p>
-            {historiaResgates.length === 0 && (
-              <p className="text-xs text-slate-500 text-center py-4">Carregando histórico...</p>
-            )}
-            {historiaResgates.map((r: any) => (
-              <div key={r._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-2">
-                <div className="flex justify-between">
-                  <span className="font-mono text-xs text-slate-500">{r.code}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-                    r.status === 'CONFIRMADO' ? 'bg-emerald-500/20 text-emerald-400' :
-                    r.status === 'EXPIRADO' ? 'bg-red-500/20 text-red-400' : 'bg-slate-500/20 text-slate-500'
+            <h1 className="text-2xl font-black">📋 Histórico de Transações</h1>
+
+            {/* Sub-tabs */}
+            <div className="flex gap-1">
+              {(['extrato','pix','crypto'] as const).map(st => (
+                <button key={st} onClick={() => { setHistoricoSubTab(st); setHistoricoPagina(1); }}
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-colors ${
+                    historicoSubTab === st ? 'bg-white/10 text-slate-200' : 'text-slate-500 hover:text-slate-300'
                   }`}>
-                    {r.status === 'CONFIRMADO' ? '✅ Confirmado' : r.status === 'EXPIRADO' ? '❌ Expirado' : '⏰ Encerrado'}
-                  </span>
+                  {st === 'extrato' ? '📋 Extrato Geral' : st === 'pix' ? '💰 PIX' : '🔗 Crypto'}
+                </button>
+              ))}
+            </div>
+
+            {/* Filtros comuns */}
+            <div className="flex flex-wrap gap-2">
+              <select value={historicoPeriodo} onChange={e => { setHistoricoPeriodo(e.target.value); setHistoricoPagina(1); }}
+                className="p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-300">
+                <option value="hoje">Hoje</option><option value="7dias">7 dias</option><option value="30dias">30 dias</option><option value="todos">Todos</option>
+              </select>
+              {historicoSubTab === 'extrato' && (
+                <select value={historicoTipo} onChange={e => { setHistoricoTipo(e.target.value); setHistoricoPagina(1); }}
+                  className="p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-300">
+                  <option value="todos">Todos</option><option value="pix">Só PIX</option><option value="crypto">Só Crypto</option>
+                </select>
+              )}
+              <select value={historicoDirecao} onChange={e => { setHistoricoDirecao(e.target.value); setHistoricoPagina(1); }}
+                className="p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-300">
+                <option value="todos">Todos</option><option value="entrada">Só entradas</option><option value="saida">Só saídas</option>
+              </select>
+              <input placeholder="🔍 Buscar..." value={historicoBusca}
+                onChange={e => { setHistoricoBusca(e.target.value); setHistoricoPagina(1); }}
+                className="flex-1 min-w-[120px] p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm outline-none focus:border-cyan-500" />
+            </div>
+
+            {/* Extrato Geral — resumo */}
+            {historicoSubTab === 'extrato' && historicoResumo && (
+              <div className="grid grid-cols-3 gap-2 p-3 rounded-xl bg-white/5 border border-white/10">
+                <div className="text-center">
+                  <p className="text-xs text-slate-400">Entradas</p>
+                  <p className="text-sm font-black text-emerald-400">+R$ {historicoResumo.totalEntradas?.toFixed(2)}</p>
                 </div>
-                <div>
-                  <p className="font-bold text-sm">{r.benefitDescription}</p>
-                  <p className="text-xs text-slate-400">{r.partnerOrgao || r.partnerName}</p>
-                  <p className="text-xs text-amber-400 font-bold">{r.solidCost} SOLID</p>
-                  {r.locationAddress && (
-                    <p className="text-xs text-slate-500 mt-1">📍 {r.locationAddress.substring(0, 100)}</p>
-                  )}
-                  {r.lat && r.lng && (
-                    <a href={`https://www.google.com/maps?q=${r.lat},${r.lng}`} target="_blank" rel="noopener"
-                      className="text-xs text-cyan-400 hover:text-cyan-300 underline block">🗺️ Ver no Google Maps</a>
-                  )}
-                  <p className="text-xs text-slate-500 mt-1">🗓️ {new Date(r.createdAt).toLocaleString('pt-BR')}</p>
-                  {r.validatedAt && <p className="text-xs text-slate-500">✅ Validado: {new Date(r.validatedAt).toLocaleString('pt-BR')}</p>}
-                  {r.txHash && (
-                    <a href={`https://sepolia.etherscan.io/tx/${r.txHash}`} target="_blank" rel="noopener"
-                      className="text-xs text-cyan-400 hover:underline font-mono truncate block">🔗 {r.txHash.substring(0, 20)}...</a>
-                  )}
+                <div className="text-center">
+                  <p className="text-xs text-slate-400">Saídas</p>
+                  <p className="text-sm font-black text-red-400">-R$ {historicoResumo.totalSaidas?.toFixed(2)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-slate-400">Saldo</p>
+                  <p className={`text-sm font-black ${historicoResumo.saldoLiquido >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    R$ {historicoResumo.saldoLiquido?.toFixed(2)}
+                  </p>
                 </div>
               </div>
-            ))}
+            )}
+
+            {/* Lista */}
+            {historicoData.length === 0 ? (
+              <p className="text-xs text-slate-500 text-center py-8">Nenhuma transação encontrada.</p>
+            ) : (
+              <div className="space-y-1">
+                {(() => {
+                  let lastDate = '';
+                  return historicoData.map((item: any, i: number) => {
+                    const itemDate = new Date(item.createdAt).toLocaleDateString('pt-BR');
+                    const showDateSep = itemDate !== lastDate;
+                    lastDate = itemDate;
+                    const isEntrada = item.direcao === 'entrada';
+                    const valorStr = `${isEntrada ? '+' : '-'}${item.moeda === 'BRL' ? 'R$ ' : ''}${item.valor?.toFixed(item.moeda === 'BRL' ? 2 : 4)}${item.moeda === 'ETH' ? ' ETH' : ''}`;
+                    return (
+                      <div key={item._id || i}>
+                        {showDateSep && (
+                          <div className="flex items-center gap-2 py-2">
+                            <div className="flex-1 border-t border-white/10" />
+                            <span className="text-xs font-bold text-slate-500 px-2">{itemDate === new Date().toLocaleDateString('pt-BR') ? 'Hoje' : itemDate === new Date(Date.now()-86400000).toLocaleDateString('pt-BR') ? 'Ontem' : itemDate}</span>
+                            <div className="flex-1 border-t border-white/10" />
+                          </div>
+                        )}
+                        <div className="p-3 rounded-lg bg-slate-800/20 border border-white/5 flex items-center gap-3">
+                          <span className={`text-lg ${isEntrada ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {isEntrada ? '↓' : '↑'}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-start">
+                              <p className="text-xs text-slate-300 truncate font-bold">{item.contraparte || '—'}</p>
+                              <span className={`text-xs font-black ml-2 ${isEntrada ? 'text-emerald-400' : 'text-red-400'}`}>{valorStr}</span>
+                            </div>
+                            <p className="text-xs text-slate-500">{item.descricao}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${item.tipo === 'pix' ? 'bg-blue-500/20 text-blue-400' : 'bg-purple-500/20 text-purple-400'}`}>
+                                {item.tipo === 'pix' ? 'PIX' : 'Crypto'}
+                              </span>
+                              <span className="text-xs text-slate-600">{new Date(item.createdAt).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${
+                                item.status === 'concluido' || item.status === 'confirmado' ? 'bg-emerald-500/20 text-emerald-400' :
+                                item.status === 'pendente' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'
+                              }`}>{item.status}</span>
+                            </div>
+                            {item.hash && item.tipo === 'crypto' && (
+                              <a href={`https://sepolia.etherscan.io/tx/${item.hash}`} target="_blank" rel="noopener"
+                                className="text-xs text-cyan-400 hover:underline font-mono truncate block">🔗 {item.hash.slice(0,14)}...</a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            )}
+
+            {/* Paginação */}
+            {historicoTotalPages > 1 && (
+              <div className="flex justify-between items-center pt-2">
+                <button onClick={() => setHistoricoPagina(p => Math.max(1, p-1))} disabled={historicoPagina <= 1}
+                  className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Anterior</button>
+                <span className="text-xs text-slate-500">Página {historicoPagina} de {historicoTotalPages}</span>
+                <button onClick={() => setHistoricoPagina(p => Math.min(historicoTotalPages, p+1))} disabled={historicoPagina >= historicoTotalPages}
+                  className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Próxima</button>
+              </div>
+            )}
           </div>
         )}
 
