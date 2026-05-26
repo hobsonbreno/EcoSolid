@@ -93,16 +93,17 @@ export class CitizenExtratoController {
   }
 
   @Get('resumo')
-  async getResumo(@Query('usuarioId') usuarioId: string, @Query('periodo') periodo?: string) {
+  async getResumo(@Query('usuarioId') usuarioId: string, @Query('walletAddress') walletAddress?: string, @Query('periodo') periodo?: string) {
     try {
       if (!usuarioId) return { success: false, error: 'usuarioId é obrigatório' };
       const since = this.getDateRange(periodo || 'todos');
       const baseFilter: any = {};
       if (since) baseFilter.createdAt = { $gte: since };
+      const wAddr = walletAddress || usuarioId;
 
       const [pixData, cryptoData] = await Promise.all([
         this.pixModel.find({ ...baseFilter, $or: [{ usuarioOrigemId: usuarioId }, { usuarioDestinoId: usuarioId }] }).lean().exec(),
-        this.cryptoModel.find({ ...baseFilter, $or: [{ from: usuarioId }, { to: usuarioId }] }).lean().exec(),
+        this.cryptoModel.find({ ...baseFilter, $or: [{ from: wAddr }, { to: wAddr }] }).lean().exec(),
       ]);
 
       let totalEntradasBRL = 0, totalSaidasBRL = 0, totalEntradasETH = 0, totalSaidasETH = 0;
@@ -112,7 +113,7 @@ export class CitizenExtratoController {
         else totalSaidasBRL += p.valor;
       }
       for (const c of cryptoData) {
-        if (c.to === usuarioId) totalEntradasETH += c.valor;
+        if (c.to === wAddr) totalEntradasETH += c.valor;
         else totalSaidasETH += c.valor;
       }
 

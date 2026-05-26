@@ -882,7 +882,7 @@ export default function EcoSolidApp() {
     const load = () => {
       Promise.all([
         fetch(`${BACKEND_URL}/extrato?${params}`).then(r => r.json()),
-        fetch(`${BACKEND_URL}/extrato/resumo?usuarioId=${citizen.id}&periodo=${extratoPeriodo}`).then(r => r.json()),
+        fetch(`${BACKEND_URL}/extrato/resumo?usuarioId=${citizen.id}&walletAddress=${citizen.walletAddress || ''}&periodo=${extratoPeriodo}`).then(r => r.json()),
       ]).then(([dataJson, resumoJson]) => {
         if (dataJson.success) { setExtratoData(dataJson.data); setExtratoTotal(dataJson.total); setExtratoTotalPages(dataJson.totalPages); }
         if (resumoJson.success) setExtratoResumo(resumoJson.data);
