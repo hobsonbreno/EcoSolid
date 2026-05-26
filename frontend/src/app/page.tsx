@@ -1538,27 +1538,26 @@ export default function EcoSolidApp() {
     );
   };
 
-  const filteredCitizenRedemptionsData = useMemo(() => {
-    try {
-      const now = new Date();
-      let dateSince: Date | null = null;
-      if (histRedempFilter === 'hoje') { dateSince = new Date(); dateSince.setHours(0,0,0,0); }
-      else if (histRedempFilter === '7dias') dateSince = new Date(now.getTime() - 7*86400000);
-      else if (histRedempFilter === '30dias') dateSince = new Date(now.getTime() - 30*86400000);
-      const filtered = citizenRedemptions.filter((r: any) => {
-        if (!r) return false;
-        if (dateSince && new Date(r?.createdAt ?? 0) < dateSince) return false;
-        if (histRedempBusca && !((r?.code ?? '').toLowerCase().includes(histRedempBusca.toLowerCase()) || (r?.benefitDescription ?? '').toLowerCase().includes(histRedempBusca.toLowerCase()))) return false;
-        return true;
-      });
-      const tp = Math.ceil(filtered.length / HIST_REDEMP_PAGE_SIZE);
-      const pg = Math.min(histRedempPage, tp);
-      const pd = filtered.slice((pg-1)*HIST_REDEMP_PAGE_SIZE, pg*HIST_REDEMP_PAGE_SIZE);
-      return { filtered, tp, pg, pd };
-    } catch {
-      return null;
-    }
-  }, [citizenRedemptions, histRedempFilter, histRedempBusca, histRedempPage]);
+  let filteredCitizenRedemptionsData = null;
+  try {
+    const now = new Date();
+    let dateSince: Date | null = null;
+    if (histRedempFilter === 'hoje') { dateSince = new Date(); dateSince.setHours(0,0,0,0); }
+    else if (histRedempFilter === '7dias') dateSince = new Date(now.getTime() - 7*86400000);
+    else if (histRedempFilter === '30dias') dateSince = new Date(now.getTime() - 30*86400000);
+    const filtered = citizenRedemptions.filter((r: any) => {
+      if (!r) return false;
+      if (dateSince && new Date(r?.createdAt ?? 0) < dateSince) return false;
+      if (histRedempBusca && !((r?.code ?? '').toLowerCase().includes(histRedempBusca.toLowerCase()) || (r?.benefitDescription ?? '').toLowerCase().includes(histRedempBusca.toLowerCase()))) return false;
+      return true;
+    });
+    const tp = Math.ceil(filtered.length / HIST_REDEMP_PAGE_SIZE);
+    const pg = Math.min(histRedempPage, tp);
+    const pd = filtered.slice((pg-1)*HIST_REDEMP_PAGE_SIZE, pg*HIST_REDEMP_PAGE_SIZE);
+    filteredCitizenRedemptionsData = { filtered, tp, pg, pd };
+  } catch {
+    filteredCitizenRedemptionsData = null;
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans pb-24">
