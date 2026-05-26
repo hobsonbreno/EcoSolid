@@ -22,6 +22,7 @@ export class CitizenExtratoController {
   @Get()
   async getExtrato(
     @Query('usuarioId') usuarioId: string,
+    @Query('walletAddress') walletAddress?: string,
     @Query('periodo') periodo?: string,
     @Query('tipo') tipo?: string,
     @Query('direcao') direcao?: string,
@@ -54,7 +55,9 @@ export class CitizenExtratoController {
       };
 
       const fetchPix = tipo !== 'crypto' ? this.pixModel.find(buildUserFilter('usuarioOrigemId', 'usuarioDestinoId')).lean().exec() : Promise.resolve([]);
-      const fetchCrypto = tipo !== 'pix' ? this.cryptoModel.find(buildUserFilter('from', 'to')).lean().exec() : Promise.resolve([]);
+      const cryptoFilter = buildUserFilter('from', 'to');
+      if (walletAddress) cryptoFilter.$or = [{ from: walletAddress }, { to: walletAddress }];
+      const fetchCrypto = tipo !== 'pix' ? this.cryptoModel.find(cryptoFilter).lean().exec() : Promise.resolve([]);
 
       const [pixData, cryptoData] = await Promise.all([fetchPix, fetchCrypto]);
 
@@ -130,7 +133,7 @@ export class CitizenExtratoController {
     hash: string; from: string; to: string; valor: number;
     usuarioOrigemId: string; usuarioDestinoId: string;
     nomeOrigem?: string; nomeDestino?: string;
-    bloco?: number; network?: string;
+    bloco?: number; network?: string; cnpjParceiro?: string;
   }) {
     try {
       const tx = await this.cryptoModel.create({
@@ -141,10 +144,7 @@ export class CitizenExtratoController {
         hash: body.hash,
         from: body.from,
         to: body.to,
-        usuarioOrigemId: body.usuarioOrigemId,
-        usuarioDestinoId: body.usuarioDestinoId,
-        nomeOrigem: body.nomeOrigem,
-        nomeDestino: body.nomeDestino,
+        cnpjParceiro: body.cnpjParceiro || 'CIDADAO',
         bloco: body.bloco,
         network: body.network || 'sepolia',
         status: 'pendente',

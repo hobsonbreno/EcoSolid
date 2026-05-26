@@ -1,7 +1,7 @@
 import { Schema } from 'mongoose';
 
 export const CryptoTransactionSchema = new Schema({
-  cnpjParceiro: { type: String, required: true },
+  cnpjParceiro: { type: String },
   tipo: { type: String, default: 'crypto' },
   direcao: { type: String, enum: ['entrada', 'saida'], required: true },
   valor: { type: Number, required: true },

@@ -876,6 +876,7 @@ export default function EcoSolidApp() {
   useEffect(() => {
     if (dashboardTab !== 'EXTRATO' || !citizen?.id) return;
     const params = new URLSearchParams({ usuarioId: citizen.id, periodo: extratoPeriodo, direcao: extratoDirecao, pagina: String(extratoPagina), limite: '50' });
+    if (citizen.walletAddress) params.set('walletAddress', citizen.walletAddress);
     if (extratoSubTab !== 'tudo') params.set('tipo', extratoSubTab);
     if (extratoBusca) params.set('busca', extratoBusca);
     const load = () => {
