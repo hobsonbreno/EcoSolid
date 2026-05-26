@@ -885,22 +885,31 @@ export default function EcoSolidApp() {
   // -------------------------------------------------------------------------------------------------
   // CARREGAR HISTÓRICO DO BANCO
   // -------------------------------------------------------------------------------------------------
-  // Polling de alertas de sangue ativos a cada 30s
+  // Tabela de compatibilidade: quem pode doar para quem
+  const bloodCompat: Record<string, string[]> = {
+    'O-': ['O-','O+','A-','A+','B-','B+','AB-','AB+'],
+    'O+': ['O+','A+','B+','AB+'],
+    'A-': ['A-','A+','AB-','AB+'],
+    'A+': ['A+','AB+'],
+    'B-': ['B-','B+','AB-','AB+'],
+    'B+': ['B+','AB+'],
+    'AB-': ['AB-','AB+'],
+    'AB+': ['AB+'],
+  };
+  // Polling de alertas de sangue ativos a cada 5min (todas as telas)
   useEffect(() => {
-    if (!citizen?.bloodType || view !== 'DASHBOARD') return;
+    if (!citizen?.bloodType) return;
+    const compat = bloodCompat[citizen.bloodType] || [];
     const fetchAlerts = () => {
       apiFetch('/alerts/blood/active')
         .then(r => r.json())
         .then(json => {
           if (json.success && json.data.length > 0) {
-            const relevant = json.data.filter((a: any) => a.bloodType === citizen.bloodType);
+            const relevant = json.data.filter((a: any) => compat.includes(a.bloodType));
             if (relevant.length > 0) {
               const latest = relevant[0];
-              // Verificar se usuário dispensou nas últimas 2h
               const dismissed = localStorage.getItem('ecosolid_alert_dismissed');
-              if (dismissed && (Date.now() - parseInt(dismissed)) < 2 * 60 * 60 * 1000) {
-                return; // ainda dentro das 2h de dismiss
-              }
+              if (dismissed && (Date.now() - parseInt(dismissed)) < 4 * 60 * 60 * 1000) return;
               setBloodAlert(latest);
             }
           }
@@ -908,9 +917,9 @@ export default function EcoSolidApp() {
         .catch(() => {});
     };
     fetchAlerts();
-    const interval = setInterval(fetchAlerts, 30000);
+    const interval = setInterval(fetchAlerts, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [citizen?.bloodType, view]);
+  }, [citizen?.bloodType]);
 
   // Extrato do cidadão (aba Extrato) — carrega + polling 30s
   useEffect(() => {
@@ -939,8 +948,8 @@ export default function EcoSolidApp() {
     if (!citizen?.id || dashboardTab !== 'BENEFITS') return;
     apiFetch(`/benefits/citizen/${citizen.id}`)
       .then(r => r.json())
-      .then(json => { if (json.success) setCitizenRedemptions(json.data || []); })
-      .catch(() => {});
+      .then(json => { if (json.success) setCitizenRedemptions(Array.isArray(json.data) ? json.data : []); })
+      .catch(() => { setCitizenRedemptions([]); });
   }, [citizen?.id, dashboardTab]);
 
   const loadHistory = async (citizenId: string) => {
@@ -1103,28 +1112,28 @@ export default function EcoSolidApp() {
         };
 
         const actions = (actionsJson.data || []).map((a: any) => ({
-          icone: iconMap[a.actionType] || '📋',
-          descricao: a.actionType === 'BLOOD_DONATION' ? `Doação de Sangue${a.bloodType ? ' (' + a.bloodType + ')' : ''}` :
-                    a.actionType === 'RECYCLING' ? 'Reciclagem' :
-                    a.actionType === 'FOOD_DONATION' ? 'Doação de Alimentos' :
-                    a.actionType === 'VOLUNTEERING' ? 'Voluntariado' : a.actionType || 'Ação',
-          valor: `+${a.pointsEarned || 0} SOLID`,
-          data: new Date(a.timestamp || a.createdAt).toLocaleString('pt-BR'),
-          status: a.status || 'REGISTRADO',
-          statusBadge: statusBadgeMap[a.status] || 'yellow',
-          txHash: a.txHash || null,
-          ts: new Date(a.timestamp || a.createdAt).getTime(),
+          icone: iconMap[a?.actionType] || '📋',
+          descricao: a?.actionType === 'BLOOD_DONATION' ? `Doação de Sangue${a?.bloodType ? ' (' + a.bloodType + ')' : ''}` :
+                    a?.actionType === 'RECYCLING' ? 'Reciclagem' :
+                    a?.actionType === 'FOOD_DONATION' ? 'Doação de Alimentos' :
+                    a?.actionType === 'VOLUNTEERING' ? 'Voluntariado' : a?.actionType || 'Ação',
+          valor: `+${a?.pointsEarned || 0} SOLID`,
+          data: (a?.timestamp || a?.createdAt) ? new Date(a.timestamp || a.createdAt).toLocaleString('pt-BR') : '—',
+          status: a?.status || 'REGISTRADO',
+          statusBadge: statusBadgeMap[a?.status] || 'yellow',
+          txHash: a?.txHash || null,
+          ts: (a?.timestamp || a?.createdAt) ? new Date(a.timestamp || a.createdAt).getTime() : 0,
         }));
 
         const redemptions = (redemptionsJson.data || []).map((r: any) => ({
           icone: '🎁',
-          descricao: r.benefitDescription || 'Resgate',
-          valor: `-${r.solidCost || 0} SOLID`,
-          data: new Date(r.createdAt).toLocaleString('pt-BR'),
-          status: r.status || 'PENDENTE',
-          statusBadge: statusBadgeMap[r.status] || 'yellow',
-          txHash: r.txHash || null,
-          ts: new Date(r.createdAt).getTime(),
+          descricao: r?.benefitDescription || 'Resgate',
+          valor: `-${r?.solidCost || 0} SOLID`,
+          data: r?.createdAt ? new Date(r.createdAt).toLocaleString('pt-BR') : '—',
+          status: r?.status || 'PENDENTE',
+          statusBadge: statusBadgeMap[r?.status] || 'yellow',
+          txHash: r?.txHash || null,
+          ts: r?.createdAt ? new Date(r.createdAt).getTime() : 0,
         }));
 
         const combined = [...actions, ...redemptions].sort((a, b) => b.ts - a.ts);
@@ -1681,14 +1690,16 @@ export default function EcoSolidApp() {
                   className="flex-1 p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm outline-none focus:border-amber-500" />
               </div>
               {useMemo(() => {
+                try {
                 const now = new Date();
                 let dateSince: Date | null = null;
                 if (histRedempFilter === 'hoje') { dateSince = new Date(); dateSince.setHours(0,0,0,0); }
                 else if (histRedempFilter === '7dias') dateSince = new Date(now.getTime() - 7*86400000);
                 else if (histRedempFilter === '30dias') dateSince = new Date(now.getTime() - 30*86400000);
                 const filtered = citizenRedemptions.filter((r: any) => {
-                  if (dateSince && new Date(r.createdAt) < dateSince) return false;
-                  if (histRedempBusca && !(r.code?.toLowerCase().includes(histRedempBusca.toLowerCase()) || r.benefitDescription?.toLowerCase().includes(histRedempBusca.toLowerCase()))) return false;
+                  if (!r) return false;
+                  if (dateSince && new Date(r?.createdAt ?? 0) < dateSince) return false;
+                  if (histRedempBusca && !((r?.code ?? '').toLowerCase().includes(histRedempBusca.toLowerCase()) || (r?.benefitDescription ?? '').toLowerCase().includes(histRedempBusca.toLowerCase()))) return false;
                   return true;
                 });
                 if (filtered.length === 0) return <p key="empty" className="text-xs text-slate-500 text-center py-4">Nenhum resgate encontrado.</p>;
@@ -1696,19 +1707,19 @@ export default function EcoSolidApp() {
                 const pg = Math.min(histRedempPage, tp);
                 const pd = filtered.slice((pg-1)*HIST_REDEMP_PAGE_SIZE, pg*HIST_REDEMP_PAGE_SIZE);
                 return <div key="list"><div className="space-y-3">{pd.map((r: any) => (
-                  <div key={r._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-1">
+                  <div key={r?._id || Math.random()} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-1">
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
-                          <span className="text-lg">{r.partnerIcon || '🎁'}</span>
-                          <span className="font-bold text-sm">{r.benefitDescription}</span>
+                          <span className="text-lg">{r?.partnerIcon || '🎁'}</span>
+                          <span className="font-bold text-sm">{r?.benefitDescription ?? 'Sem descrição'}</span>
                         </div>
-                        <p className="text-xs font-mono text-slate-500">{r.code}</p>
-                        <p className="text-xs text-slate-400">{r.partnerOrgao || r.partnerName} · {r.solidCost} SOLID</p>
-                        <p className="text-xs text-slate-500">{new Date(r.createdAt).toLocaleString('pt-BR')}</p>
+                        <p className="text-xs font-mono text-slate-500">{r?.code ?? '—'}</p>
+                        <p className="text-xs text-slate-400">{r?.partnerOrgao || r?.partnerName || 'Parceiro'} · {r?.solidCost ?? 0} SOLID</p>
+                        <p className="text-xs text-slate-500">{r?.createdAt ? new Date(r.createdAt).toLocaleString('pt-BR') : '—'}</p>
                       </div>
-                      <span className={'text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap '+(r.status==='CONFIRMADO'?'bg-emerald-500/20 text-emerald-400':r.status==='EXPIRADO'?'bg-red-500/20 text-red-400':'bg-yellow-500/20 text-yellow-400')}>
-                        {r.status==='CONFIRMADO'?'✅ Confirmado':r.status==='EXPIRADO'?'❌ Expirado':'🟡 Pendente'}
+                      <span className={'text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap '+((r?.status==='CONFIRMADO'||r?.status==='validated')?'bg-emerald-500/20 text-emerald-400':(r?.status==='EXPIRADO'||r?.status==='expired')?'bg-red-500/20 text-red-400':'bg-yellow-500/20 text-yellow-400')}>
+                        {(r?.status==='CONFIRMADO'||r?.status==='validated')?'✅ Confirmado':(r?.status==='EXPIRADO'||r?.status==='expired')?'❌ Expirado':'🟡 Pendente'}
                       </span>
                     </div>
                   </div>
@@ -1721,6 +1732,9 @@ export default function EcoSolidApp() {
                   </div>
                 )}
                 </div>
+                } catch {
+                  return <p key="error" className="text-xs text-red-400 text-center py-4 bg-red-500/10 rounded-lg border border-red-500/20">Erro ao carregar histórico. Tente novamente.</p>;
+                }
               }, [citizenRedemptions, histRedempFilter, histRedempBusca, histRedempPage])}
           </>)}
           </div>
