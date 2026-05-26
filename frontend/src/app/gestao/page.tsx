@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3005';
 
@@ -54,6 +55,20 @@ export default function GestaoPage() {
   const [adminFilterStatus, setAdminFilterStatus] = useState('');
   const [adminFilterSegmento, setAdminFilterSegmento] = useState('');
   const [adminFilterDate, setAdminFilterDate] = useState('');
+  // Dashboard do parceiro
+  const [dashMetrics, setDashMetrics] = useState<any>(null);
+  const [dashResgates30d, setDashResgates30d] = useState<any[]>([]);
+  const [dashTopBeneficios, setDashTopBeneficios] = useState<any[]>([]);
+  const [dashUltimosResgates, setDashUltimosResgates] = useState<any[]>([]);
+  const [dashStatus, setDashStatus] = useState<any>(null);
+  const [dashPeriodo, setDashPeriodo] = useState('hoje');
+  const [dashSearch, setDashSearch] = useState('');
+  const [dashPolling, setDashPolling] = useState(0);
+  // Filtros da aba Resgates (parceiro)
+  const [redeemCodeFilter, setRedeemCodeFilter] = useState('');
+  const [redeemDateFilter, setRedeemDateFilter] = useState('hoje');
+  const [redeemPage, setRedeemPage] = useState(1);
+  const PAGE_SIZE = 100;
   // Admin stats
   const [adminStats, setAdminStats] = useState({ today: 0, solidToday: 0, feeToday: 0 });
 
@@ -270,6 +285,36 @@ export default function GestaoPage() {
     }).catch(() => {});
   }, [role, tab, partnerData?.segmento]);
 
+  // Auto-load Dashboard do parceiro
+  useEffect(() => {
+    if (role !== 'partner' || tab !== 'dashboard') return;
+    const pn = partnerName || '';
+    const loadDashboard = async () => {
+      try {
+        const [m, r30d, top, ult, status] = await Promise.all([
+          fetch(`${API}/dashboard/metricas?partnerName=${encodeURIComponent(pn)}&periodo=${dashPeriodo}`).then(r => r.json()),
+          fetch(`${API}/dashboard/resgates-30dias?partnerName=${encodeURIComponent(pn)}`).then(r => r.json()),
+          fetch(`${API}/dashboard/top-beneficios?partnerName=${encodeURIComponent(pn)}&periodo=${dashPeriodo}`).then(r => r.json()),
+          fetch(`${API}/dashboard/ultimos-resgates?partnerName=${encodeURIComponent(pn)}`).then(r => r.json()),
+          fetch(`${API}/dashboard/status-sistema`).then(r => r.json()),
+        ]);
+        if (m.success) setDashMetrics(m.data);
+        if (r30d.success) setDashResgates30d(r30d.data);
+        if (top.success) setDashTopBeneficios(top.data);
+        if (ult.success) setDashUltimosResgates(ult.data);
+        if (status.success) setDashStatus(status.data);
+      } catch {}
+    };
+    loadDashboard();
+  }, [role, tab, dashPeriodo, partnerName, dashPolling]);
+
+  // Polling 15s para últimos resgates do dashboard
+  useEffect(() => {
+    if (role !== 'partner' || tab !== 'dashboard') return;
+    const interval = setInterval(() => setDashPolling(n => n + 1), 15000);
+    return () => clearInterval(interval);
+  }, [role, tab]);
+
   // Restaurar sessão ao carregar a página
   useEffect(() => {
     if (role) return; // já autenticado
@@ -344,6 +389,7 @@ export default function GestaoPage() {
       { key: 'reports', label: 'Relatórios', icon: '📈' },
     ],
     partner: [
+      { key: 'dashboard', label: 'Dashboard', icon: '📊' },
       { key: 'redeem', label: 'Resgates', icon: '🎁' },
       { key: 'historia', label: 'Histórico', icon: '📋' },
       { key: 'performance', label: 'Meu Desempenho', icon: '📊' },
@@ -952,7 +998,36 @@ export default function GestaoPage() {
                 <p className="font-bold text-sm text-yellow-400">⏳ Pendentes de Validação (tempo real)</p>
                 <span className="text-xs text-slate-500">ações 10s · resgates 5s</span>
               </div>
-              {pendingActions.length === 0 && pendingRedemptions.length === 0 && (
+              {/* Filtros */}
+              <div className="flex gap-2">
+                <input placeholder="🔍 Filtrar por código..." value={redeemCodeFilter}
+                  onChange={e => { setRedeemCodeFilter(e.target.value); setRedeemPage(1); }}
+                  className="flex-1 p-2 rounded-lg bg-slate-900 border border-slate-700 outline-none focus:border-yellow-500 font-mono text-sm" />
+                <select value={redeemDateFilter} onChange={e => setRedeemDateFilter(e.target.value)}
+                  className="p-2 rounded-lg bg-slate-900 border border-slate-700 outline-none focus:border-yellow-500 text-sm text-slate-300">
+                  <option value="hoje">Hoje</option>
+                  <option value="7dias">Últimos 7 dias</option>
+                  <option value="30dias">Últimos 30 dias</option>
+                  <option value="todos">Todos</option>
+                </select>
+              </div>
+              {(() => {
+                const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+                const dateSince = redeemDateFilter === 'hoje' ? todayStart :
+                  redeemDateFilter === '7dias' ? new Date(Date.now() - 7*86400000) :
+                  redeemDateFilter === '30dias' ? new Date(Date.now() - 30*86400000) : null;
+                const filtered = pendingRedemptions.filter((r: any) => {
+                  if (redeemCodeFilter && !r.code?.toLowerCase().includes(redeemCodeFilter.toLowerCase())) return false;
+                  if (dateSince && new Date(r.createdAt) < dateSince) return false;
+                  return true;
+                });
+                const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+                const page = Math.min(redeemPage, totalPages);
+                const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+                const exactOne = filtered.length === 1 && redeemCodeFilter.trim().length > 0;
+
+                return <>
+              {pendingActions.length === 0 && filtered.length === 0 && (
                 <p className="text-xs text-slate-500">Nenhum item pendente de validação.</p>
               )}
 
@@ -1014,8 +1089,9 @@ export default function GestaoPage() {
               ))}
 
               {/* Benefit Redemptions pendentes (agora também aparecem aqui) */}
-              {pendingRedemptions.map((r: any) => (
+              {paged.map((r: any) => (
                 <PendingRedemptionCard key={r._id} redemption={r} api={API} partnerName={partnerName}
+                  highlight={exactOne}
                   onUpdate={(id: string, confirmed: boolean) => {
                     setPendingRedemptions(prev => prev.filter(x => x._id !== id));
                     if (confirmed) {
@@ -1024,6 +1100,18 @@ export default function GestaoPage() {
                     } else alert('Resgate rejeitado.');
                   }} setLoading={setLoading} />
               ))}
+              {/* Paginação */}
+              {filtered.length > PAGE_SIZE && (
+                <div className="flex items-center justify-between pt-1">
+                  <button onClick={() => setRedeemPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                    className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Anterior</button>
+                  <span className="text-xs text-slate-500">Página {page} de {totalPages} ({filtered.length} itens)</span>
+                  <button onClick={() => setRedeemPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                    className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Próxima</button>
+                </div>
+              )}
+              </>;
+              })()}
             </div>
           </div>
         )}
@@ -1049,6 +1137,153 @@ export default function GestaoPage() {
                   <span className={`font-bold text-xs ${r.status === 'validated' ? 'text-emerald-400' : 'text-amber-400'}`}>{r.status}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* PARTNER: Dashboard */}
+        {role === 'partner' && tab === 'dashboard' && (
+          <div className="space-y-4">
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
+              <div>
+                <h1 className="text-2xl font-black">📊 Dashboard de Gestão</h1>
+                <p className="text-sm text-slate-400">{partnerName}</p>
+              </div>
+              <div className="flex gap-1">
+                {['hoje','7dias','30dias','todos'].map(p => (
+                  <button key={p} onClick={() => setDashPeriodo(p)}
+                    className={`px-3 py-1 text-xs rounded-full font-bold transition-colors ${dashPeriodo === p ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
+                    {p === 'hoje' ? 'Hoje' : p === '7dias' ? '7 dias' : p === '30dias' ? '30 dias' : 'Todos'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* KPI Cards */}
+            {dashMetrics && (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { label: 'Resgates', val: dashMetrics.totalResgates, c: 'slate' },
+                  { label: 'Aprovados', val: `${dashMetrics.aprovados} (${dashMetrics.taxaAprovacao}%)`, c: 'emerald' },
+                  { label: 'Rejeitados', val: dashMetrics.rejeitados, c: 'red' },
+                  { label: 'SOLID Dist.', val: dashMetrics.solidDistribuido, c: 'amber' },
+                ].map(k => (
+                  <div key={k.label} className={`p-3 rounded-xl bg-white/5 border border-white/10`}>
+                    <p className="text-xs text-slate-400">{k.label}</p>
+                    <p className={`text-lg font-black ${k.c === 'emerald' ? 'text-emerald-400' : k.c === 'red' ? 'text-red-400' : k.c === 'amber' ? 'text-amber-400' : 'text-white'}`}>{k.val}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Charts + Top Benefícios */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Resgates 30 dias chart */}
+              <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                <h3 className="text-sm font-bold text-slate-300 mb-3">Resgates nos Últimos 30 Dias</h3>
+                {dashResgates30d.length > 0 && (
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart data={dashResgates30d}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="data" tick={{fontSize:10, fill:'#94a3b8'}} interval={6} />
+                      <YAxis tick={{fontSize:10, fill:'#94a3b8'}} allowDecimals={false} />
+                      <Tooltip contentStyle={{background:'#0f172a', border:'1px solid #334155', borderRadius:'8px', color:'#e2e8f0'}} />
+                      <Line type="monotone" dataKey="aprovados" stroke="#1a7a4a" strokeWidth={2} dot={false} name="Aprovados" />
+                      <Line type="monotone" dataKey="rejeitados" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" dot={false} name="Rejeitados" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+
+              {/* Top Benefícios */}
+              <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                <h3 className="text-sm font-bold text-slate-300 mb-3">Top Benefícios</h3>
+                {dashTopBeneficios.length === 0 ? (
+                  <p className="text-xs text-slate-500">Nenhum dado no período.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {dashTopBeneficios.map((b: any, i: number) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400 w-5">{i + 1}.</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-300 truncate">{b.beneficio}</p>
+                          <div className="w-full h-1 rounded-full bg-slate-800 mt-0.5">
+                            <div className="h-1 rounded-full bg-emerald-500" style={{width: `${b.barraPct}%`}} />
+                          </div>
+                        </div>
+                        <span className="text-xs text-slate-400 whitespace-nowrap">{b.quantidade}x</span>
+                        <span className="text-xs text-amber-400 font-bold w-14 text-right">{b.solidTotal} S</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Últimos resgates + Status */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Últimos resgates */}
+              <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                <div className="flex justify-between items-center mb-3">
+                  <h3 className="text-sm font-bold text-slate-300">Últimos Resgates</h3>
+                  <span className="text-xs text-slate-600">atualiza 15s</span>
+                </div>
+                <input placeholder="🔍 Buscar código ou nome..." value={dashSearch}
+                  onChange={e => setDashSearch(e.target.value)}
+                  className="w-full p-2 rounded-lg bg-slate-900 border border-slate-700 outline-none focus:border-cyan-500 text-sm mb-2" />
+                {dashUltimosResgates.filter((r: any) => !dashSearch || r.code?.toLowerCase().includes(dashSearch.toLowerCase()) || r.citizenId?.toLowerCase().includes(dashSearch.toLowerCase())).slice(0, 10).map((r: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-slate-300 truncate">{r.citizenId?.slice(0, 20) || 'N/A'}</p>
+                      <p className="font-mono text-xs text-slate-500">{r.code}</p>
+                      <p className="text-xs text-slate-400 truncate">{r.benefitDescription}</p>
+                    </div>
+                    <div className="text-right ml-2">
+                      <span className="text-xs text-amber-400 font-bold">-{r.solidCost} S</span>
+                      <p className={`text-xs px-1.5 py-0.5 rounded-full font-bold mt-0.5 ${
+                        r.status === 'CONFIRMADO' || r.status === 'validated' ? 'bg-emerald-500/20 text-emerald-400' :
+                        r.status === 'PENDENTE' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'
+                      }`}>{r.status}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Status do Sistema */}
+              <div className="space-y-3">
+                {dashStatus && (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: 'Parceiros Ativos', val: dashStatus.totalParceiros, c: 'cyan' },
+                        { label: 'Usuários', val: dashStatus.totalUsuarios, c: 'purple' },
+                      ].map(k => (
+                        <div key={k.label} className="p-3 rounded-xl bg-white/5 border border-white/10 text-center">
+                          <p className="text-xs text-slate-400">{k.label}</p>
+                          <p className={`text-xl font-black ${k.c === 'cyan' ? 'text-cyan-400' : 'text-purple-400'}`}>{k.val}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="p-4 rounded-xl bg-white/5 border border-white/10 text-center">
+                      <p className="text-xs text-slate-400">SOLID em Circulação</p>
+                      <p className="text-2xl font-black text-emerald-400">{dashStatus.solidCirculacao?.toLocaleString()}</p>
+                    </div>
+                    {dashStatus.segmentos?.length > 0 && (
+                      <div className="p-4 rounded-xl bg-white/5 border border-white/10">
+                        <h3 className="text-sm font-bold text-slate-300 mb-2">Parceiros por Segmento</h3>
+                        <div className="space-y-1.5">
+                          {dashStatus.segmentos.map((s: any, i: number) => (
+                            <div key={i} className="flex justify-between text-xs">
+                              <span className="text-slate-400">{s.nome}</span>
+                              <span className="text-slate-300 font-bold">{s.count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -1146,9 +1381,10 @@ function PollingActions({ onUpdate, active, api, segment }: { onUpdate: (d: any[
   return null;
 }
 
-function PendingRedemptionCard({ redemption: r, api, partnerName, onUpdate, setLoading }: {
+function PendingRedemptionCard({ redemption: r, api, partnerName, onUpdate, setLoading, highlight }: {
   redemption: any; api: string; partnerName: string;
   onUpdate: (id: string, confirmed: boolean) => void; setLoading: (v: boolean) => void;
+  highlight?: boolean;
 }) {
   const [citizenName, setCitizenName] = useState('');
   useEffect(() => {
@@ -1158,7 +1394,7 @@ function PendingRedemptionCard({ redemption: r, api, partnerName, onUpdate, setL
   }, [r.citizenId]);
   const duracao = r.duracaoMinutos > 0 ? (r.duracaoMinutos >= 60 ? `${r.duracaoMinutos/60}h de` : `${r.duracaoMinutos}min de`) + ` ${r.benefitDescription}` : r.benefitDescription;
   return (
-    <div className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-2">
+    <div className={`p-3 rounded-lg bg-slate-800/30 border space-y-2 ${highlight ? 'border-cyan-400 ring-2 ring-cyan-500/30' : 'border-slate-700/50'}`}>
       <div>
         <p className="font-bold text-sm">{citizenName || 'Carregando...'}</p>
         <p className="font-mono font-bold text-xs text-slate-500">{r.code}</p>

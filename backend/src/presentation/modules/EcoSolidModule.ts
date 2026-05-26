@@ -23,6 +23,7 @@ import { PushController } from '../controllers/PushController';
 import { PartnerController } from '../controllers/PartnerController';
 import { PixController } from '../controllers/PixController';
 import { AppointmentController } from '../controllers/AppointmentController';
+import { DashboardController } from '../controllers/DashboardController';
 import { ICitizenRepository } from '../../domain/repositories/ICitizenRepository';
 import { IImpactActionRepository } from '../../domain/repositories/IImpactActionRepository';
 import { IBlockchainService } from '../../application/ports/IBlockchainService';
@@ -50,6 +51,7 @@ import { IBlockchainService } from '../../application/ports/IBlockchainService';
     PartnerController,
     PixController,
     AppointmentController,
+    DashboardController,
   ],
   providers: [
     {
