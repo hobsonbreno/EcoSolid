@@ -946,13 +946,17 @@ export default function GestaoPage() {
               <p className="text-xs text-slate-500">Ou escaneie o QR Code do cliente</p>
             </div>
 
-            {/* Ações pendentes de validação */}
+            {/* Ações e Resgates Pendentes de Validação (unificado) */}
             <div className="p-4 rounded-xl bg-yellow-500/5 border border-yellow-500/20 space-y-3">
               <div className="flex justify-between items-center">
-                <p className="font-bold text-sm text-yellow-400">⏳ Ações Pendentes de Validação (tempo real)</p>
-                <span className="text-xs text-slate-500">Atualiza a cada 10s</span>
+                <p className="font-bold text-sm text-yellow-400">⏳ Pendentes de Validação (tempo real)</p>
+                <span className="text-xs text-slate-500">ações 10s · resgates 5s</span>
               </div>
-              {pendingActions.length === 0 && <p className="text-xs text-slate-500">Nenhuma ação pendente.</p>}
+              {pendingActions.length === 0 && pendingRedemptions.length === 0 && (
+                <p className="text-xs text-slate-500">Nenhum item pendente de validação.</p>
+              )}
+
+              {/* Impact Actions pendentes */}
               {pendingActions.map((a: any) => (
                 <div key={a._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-2">
                   <div className="flex justify-between items-start">
@@ -1008,21 +1012,16 @@ export default function GestaoPage() {
                   </div>
                 </div>
               ))}
-            </div>
 
-            {/* Resgates pendentes */}
-            <div className="p-4 rounded-xl bg-blue-500/5 border border-blue-500/20 space-y-3">
-              <div className="flex justify-between items-center">
-                <p className="font-bold text-sm text-blue-400">🎫 Resgates Pendentes (tempo real)</p>
-                <span className="text-xs text-slate-500">Atualiza a cada 5s</span>
-              </div>
-              {pendingRedemptions.length === 0 && <p className="text-xs text-slate-500">Nenhum resgate pendente.</p>}
+              {/* Benefit Redemptions pendentes (agora também aparecem aqui) */}
               {pendingRedemptions.map((r: any) => (
                 <PendingRedemptionCard key={r._id} redemption={r} api={API} partnerName={partnerName}
                   onUpdate={(id: string, confirmed: boolean) => {
                     setPendingRedemptions(prev => prev.filter(x => x._id !== id));
-                    if (confirmed) alert(`${r.solidCost} SOLID debitados. Timer${r.duracaoMinutos > 0 ? ` de ${r.duracaoMinutos}min` : ''} iniciado!`);
-                    else alert('Resgate rejeitado.');
+                    if (confirmed) {
+                      setLoading(false);
+                      alert(`${r.solidCost} SOLID debitados. Timer${r.duracaoMinutos > 0 ? ` de ${r.duracaoMinutos}min` : ''} iniciado!`);
+                    } else alert('Resgate rejeitado.');
                   }} setLoading={setLoading} />
               ))}
             </div>
