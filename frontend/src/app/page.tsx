@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import QRCodeLib from 'qrcode';
 import { jsPDF } from 'jspdf';
 import confetti from 'canvas-confetti';
@@ -21,6 +21,16 @@ function urlBase64ToUint8Array(base64String: string) {
   const outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
   return outputArray;
+}
+
+function InputField({ label, value, onChange, type, placeholder, maxLength }: { label: string; value: string; onChange: (e: any) => void; type?: string; placeholder?: string; maxLength?: number }) {
+  return (
+    <div className="mb-2">
+      <p className="text-xs text-slate-500 uppercase font-bold mb-1">{label}</p>
+      <input type={type || 'text'} value={value} onChange={onChange} placeholder={placeholder} maxLength={maxLength}
+        className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-cyan-500 text-sm text-slate-200" />
+    </div>
+  );
 }
 
 function QRCodeDisplay({ address }: { address: string }) {
@@ -70,6 +80,36 @@ export default function EcoSolidApp() {
   const [evmBal, setEvmBal] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<{eth: string; brl: string} | null>(null);
   const [extrato, setExtrato] = useState<any[]>([]);
+  // Edição de perfil
+  const [editProfile, setEditProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState<any>({});
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
+  const openProfileEdit = () => {
+    setProfileForm({
+      name: citizen?.name || '', email: citizen?.email || '', phone: citizen?.phone || '',
+      birthDate: citizen?.birthDate || '', bloodType: citizen?.bloodType || '',
+      cep: '', logradouro: '', numero: '', complemento: '', bairro: '', cidade: '', uf: '',
+      address: citizen?.address || '',
+    });
+    setProfilePhoto(citizen?.facePhotoUrl || null);
+    setEditProfile(true);
+  };
+  const buscarCep = async (cep: string) => {
+    const clean = cep.replace(/\D/g, '');
+    if (clean.length !== 8) return;
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${clean}/json/`);
+      const data = await res.json();
+      if (!data.erro) {
+        setProfileForm((prev: any) => ({ ...prev, logradouro: data.logradouro || '', bairro: data.bairro || '', cidade: data.localidade || '', uf: data.uf || '', complemento: data.complemento || '' }));
+      }
+    } catch {}
+  };
+  // Paginação histórico de resgates
+  const [histRedempPage, setHistRedempPage] = useState(1);
+  const [histRedempFilter, setHistRedempFilter] = useState('todos');
+  const [histRedempBusca, setHistRedempBusca] = useState('');
+  const HIST_REDEMP_PAGE_SIZE = 50;
   // Extrato PWA (aba Extrato)
   const [extratoSubTab, setExtratoSubTab] = useState<'tudo'|'pix'|'crypto'>('tudo');
   const [extratoData, setExtratoData] = useState<any[]>([]);
@@ -883,6 +923,7 @@ export default function EcoSolidApp() {
       Promise.all([
         fetch(`${BACKEND_URL}/extrato?${params}`).then(r => r.json()),
         fetch(`${BACKEND_URL}/extrato/resumo?usuarioId=${citizen.id}&walletAddress=${citizen.walletAddress || ''}&periodo=${extratoPeriodo}`).then(r => r.json()),
+        fetch(`${BACKEND_URL}/extrato/crypto/pendentes`).then(r => r.json()).catch(() => {}),
       ]).then(([dataJson, resumoJson]) => {
         if (dataJson.success) { setExtratoData(dataJson.data); setExtratoTotal(dataJson.total); setExtratoTotalPages(dataJson.totalPages); }
         if (resumoJson.success) setExtratoResumo(resumoJson.data);
@@ -1531,13 +1572,13 @@ export default function EcoSolidApp() {
         </div>
       )}
 
-      <nav className="flex sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-white/10 p-2 items-center">
-        <button onClick={() => setDashboardTab('OVERVIEW')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors relative ${dashboardTab === 'OVERVIEW' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Visão Geral{bloodAlert && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 animate-pulse" />}</button>
-        <button onClick={() => setDashboardTab('BENEFITS')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'BENEFITS' ? 'bg-white/10 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}>Benefícios</button>
-        <button onClick={() => setDashboardTab('CONTAS')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'CONTAS' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Contas</button>
-        <button onClick={() => setDashboardTab('EXTRATO')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'EXTRATO' ? 'bg-white/10 text-cyan-400' : 'text-slate-500 hover:text-slate-300'}`}>📋 Extrato</button>
-        <button onClick={() => setDashboardTab('PROFILE')} className={`flex-1 py-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'PROFILE' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Dados Pessoais</button>
-        <button onClick={handleLogout} className="ml-2 px-4 py-3 text-sm font-bold rounded-xl text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors" title="Sair da conta">Sair</button>
+      <nav className="flex sticky top-0 z-40 bg-slate-950/80 backdrop-blur-md border-b border-white/10 p-2 items-center overflow-x-auto whitespace-nowrap">
+        <button onClick={() => setDashboardTab('OVERVIEW')} className={`flex-shrink-0 min-w-[60px] py-3 px-3 text-sm font-bold rounded-xl transition-colors relative ${dashboardTab === 'OVERVIEW' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>👁 Visão{bloodAlert && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 animate-pulse" />}</button>
+        <button onClick={() => setDashboardTab('BENEFITS')} className={`flex-shrink-0 min-w-[60px] py-3 px-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'BENEFITS' ? 'bg-white/10 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}>🎁 Benefícios</button>
+        <button onClick={() => setDashboardTab('CONTAS')} className={`flex-shrink-0 min-w-[60px] py-3 px-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'CONTAS' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>💳 Contas</button>
+        <button onClick={() => setDashboardTab('EXTRATO')} className={`flex-shrink-0 min-w-[60px] py-3 px-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'EXTRATO' ? 'bg-white/10 text-cyan-400' : 'text-slate-500 hover:text-slate-300'}`}>📋 Extrato</button>
+        <button onClick={() => setDashboardTab('PROFILE')} className={`flex-shrink-0 min-w-[60px] py-3 px-3 text-sm font-bold rounded-xl transition-colors ${dashboardTab === 'PROFILE' ? 'bg-white/10 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>👤 Dados</button>
+        <button onClick={handleLogout} className="ml-2 px-4 py-3 text-sm font-bold rounded-xl text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors flex-shrink-0" title="Sair da conta">Sair</button>
       </nav>
 
       {dashboardTab === 'BENEFITS' && (
@@ -1626,39 +1667,63 @@ export default function EcoSolidApp() {
           </div>
 
           {/* Meu Histórico de Resgates */}
-          {citizenRedemptions.length > 0 && (
-            <div className="space-y-3 mt-8">
-              <h3 className="text-lg font-bold text-slate-300">📋 Meu Histórico de Resgates</h3>
-              {citizenRedemptions.map((r: any) => (
-                <div key={r._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-1">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">{r.partnerIcon || '🎁'}</span>
-                        <span className="font-bold text-sm">{r.benefitDescription}</span>
+          <div className="space-y-3 mt-8">
+            <h3 className="text-lg font-bold text-slate-300">📋 Meu Histórico de Resgates</h3>
+            {citizenRedemptions.length > 0 && (
+              <>
+              <div className="flex gap-2">
+                <select value={histRedempFilter} onChange={e => { setHistRedempFilter(e.target.value); setHistRedempPage(1); }}
+                  className="p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm text-slate-300">
+                  <option value="todos">Todos</option><option value="hoje">Hoje</option><option value="7dias">7 dias</option><option value="30dias">30 dias</option>
+                </select>
+                <input placeholder="🔍 Buscar..." value={histRedempBusca}
+                  onChange={e => { setHistRedempBusca(e.target.value); setHistRedempPage(1); }}
+                  className="flex-1 p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm outline-none focus:border-amber-500" />
+              </div>
+              {useMemo(() => {
+                const now = new Date();
+                let dateSince: Date | null = null;
+                if (histRedempFilter === 'hoje') { dateSince = new Date(); dateSince.setHours(0,0,0,0); }
+                else if (histRedempFilter === '7dias') dateSince = new Date(now.getTime() - 7*86400000);
+                else if (histRedempFilter === '30dias') dateSince = new Date(now.getTime() - 30*86400000);
+                const filtered = citizenRedemptions.filter((r: any) => {
+                  if (dateSince && new Date(r.createdAt) < dateSince) return false;
+                  if (histRedempBusca && !(r.code?.toLowerCase().includes(histRedempBusca.toLowerCase()) || r.benefitDescription?.toLowerCase().includes(histRedempBusca.toLowerCase()))) return false;
+                  return true;
+                });
+                if (filtered.length === 0) return <p key="empty" className="text-xs text-slate-500 text-center py-4">Nenhum resgate encontrado.</p>;
+                const tp = Math.ceil(filtered.length / HIST_REDEMP_PAGE_SIZE);
+                const pg = Math.min(histRedempPage, tp);
+                const pd = filtered.slice((pg-1)*HIST_REDEMP_PAGE_SIZE, pg*HIST_REDEMP_PAGE_SIZE);
+                return <div key="list"><div className="space-y-3">{pd.map((r: any) => (
+                  <div key={r._id} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-1">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-lg">{r.partnerIcon || '🎁'}</span>
+                          <span className="font-bold text-sm">{r.benefitDescription}</span>
+                        </div>
+                        <p className="text-xs font-mono text-slate-500">{r.code}</p>
+                        <p className="text-xs text-slate-400">{r.partnerOrgao || r.partnerName} · {r.solidCost} SOLID</p>
+                        <p className="text-xs text-slate-500">{new Date(r.createdAt).toLocaleString('pt-BR')}</p>
                       </div>
-                      <p className="text-xs font-mono text-slate-500">{r.code}</p>
-                      <p className="text-xs text-slate-400">{r.partnerOrgao || r.partnerName} &middot; {r.solidCost} SOLID</p>
-                      {r.locationAddress && <p className="text-xs text-slate-500">📍 {r.locationAddress.substring(0, 80)}</p>}
-                      {r.duracaoMinutos > 0 && <p className="text-xs text-slate-500">⏱️ Usado por {r.duracaoMinutos} minutos</p>}
-                      <p className="text-xs text-slate-500">{new Date(r.createdAt).toLocaleString('pt-BR')}</p>
-                      {r.txHash && (
-                        <a href={`https://sepolia.etherscan.io/tx/${r.txHash}`} target="_blank" rel="noopener"
-                          className="text-xs text-cyan-400 hover:underline font-mono">🔗 {r.txHash.substring(0, 16)}...</a>
-                      )}
+                      <span className={'text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap '+(r.status==='CONFIRMADO'?'bg-emerald-500/20 text-emerald-400':r.status==='EXPIRADO'?'bg-red-500/20 text-red-400':'bg-yellow-500/20 text-yellow-400')}>
+                        {r.status==='CONFIRMADO'?'✅ Confirmado':r.status==='EXPIRADO'?'❌ Expirado':'🟡 Pendente'}
+                      </span>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap ${
-                      r.status === 'CONFIRMADO' ? 'bg-emerald-500/20 text-emerald-400' :
-                      r.status === 'EXPIRADO' ? 'bg-red-500/20 text-red-400' :
-                      'bg-yellow-500/20 text-yellow-400'
-                    }`}>
-                      {r.status === 'CONFIRMADO' ? '✅ Confirmado' : r.status === 'EXPIRADO' ? '❌ Expirado' : '🟡 Pendente'}
-                    </span>
                   </div>
+                ))}</div>
+                {filtered.length > HIST_REDEMP_PAGE_SIZE && (
+                  <div key="pagi" className="flex items-center justify-between pt-2">
+                    <button onClick={() => setHistRedempPage(p => Math.max(1, p-1))} disabled={pg <= 1} className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Anterior</button>
+                    <span className="text-xs text-slate-500">Página {pg} de {tp} ({filtered.length} itens)</span>
+                    <button onClick={() => setHistRedempPage(p => Math.min(tp, p+1))} disabled={pg >= tp} className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Próxima</button>
+                  </div>
+                )}
                 </div>
-              ))}
-            </div>
-          )}
+              }, [citizenRedemptions, histRedempFilter, histRedempBusca, histRedempPage])}
+          </>)}
+          </div>
         </main>
       )}
 
@@ -2025,43 +2090,118 @@ export default function EcoSolidApp() {
         <main className="p-6 max-w-md mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <div className="flex flex-col items-center mt-6">
             <div className="relative">
-              {citizen.facePhotoUrl ? (
-                <img src={citizen.facePhotoUrl} className="w-32 h-32 rounded-full object-cover border-4 border-emerald-500 shadow-[0_0_20px_rgba(52,211,113,0.3)] scale-x-[-1]" />
+              {(profilePhoto || citizen.facePhotoUrl) ? (
+                <img src={profilePhoto || citizen.facePhotoUrl} className="w-32 h-32 rounded-full object-cover border-4 border-emerald-500 shadow-[0_0_20px_rgba(52,211,113,0.3)] scale-x-[-1]" />
               ) : (
                 <div className="w-32 h-32 rounded-full bg-slate-800 flex items-center justify-center text-4xl">👤</div>
               )}
-              <div className="absolute bottom-0 right-0 bg-emerald-500 p-2 rounded-full border-2 border-slate-950 text-xs">✅</div>
+              {editProfile && (
+                <label className="absolute bottom-0 right-0 bg-cyan-500 p-2 rounded-full border-2 border-slate-950 text-xs cursor-pointer hover:bg-cyan-400">
+                  📷
+                  <input type="file" accept="image/*" className="hidden" onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const img = new Image();
+                      img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const max = 400;
+                        let w = img.width, h = img.height;
+                        if (w > h) { if (w > max) { h *= max/w; w = max; } }
+                        else { if (h > max) { w *= max/h; h = max; } }
+                        canvas.width = w; canvas.height = h;
+                        canvas.getContext('2d')?.drawImage(img, 0, 0, w, h);
+                        setProfilePhoto(canvas.toDataURL('image/jpeg', 0.8));
+                      };
+                      img.src = reader.result as string;
+                    };
+                    reader.readAsDataURL(file);
+                  }} />
+                </label>
+              )}
             </div>
             <h2 className="text-2xl font-bold mt-4">{citizen.name}</h2>
-            <p className="text-slate-400 font-mono text-sm">{citizen.walletAddress}</p>
+            <p className="text-slate-400 font-mono text-xs">{citizen.walletAddress}</p>
+            {!editProfile ? (
+              <button onClick={openProfileEdit} className="mt-3 px-6 py-2 rounded-xl bg-cyan-600 font-bold text-sm hover:bg-cyan-500">✏️ Editar Perfil</button>
+            ) : (
+              <button onClick={() => setEditProfile(false)} className="mt-3 px-6 py-2 rounded-xl bg-slate-600 font-bold text-sm hover:bg-slate-500">Cancelar</button>
+            )}
           </div>
 
-          <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
-            {/* Badge tipo raro */}
-            {['AB-', 'B-', 'A-', 'O-'].includes(citizen.bloodType || '') && (
-              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-center">
-                <p className="text-sm text-red-400 font-bold">🩸 Tipo Sanguíneo Raro: {citizen.bloodType}</p>
-                <p className="text-xs text-red-400/70">Seu tipo é considerado raro. Em emergências, você pode ser contatado para ajudar!</p>
-              </div>
-            )}
-            {citizen.bloodType && !['AB-', 'B-', 'A-', 'O-'].includes(citizen.bloodType) && (
-              <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/20 text-center">
-                <p className="text-sm text-red-300">🩸 Tipo Sanguíneo: {citizen.bloodType}</p>
-              </div>
-            )}
-            <div><p className="text-xs text-slate-500 uppercase font-bold">CPF</p><p className="text-slate-200">{citizen.cpf}</p></div>
-            <div><p className="text-xs text-slate-500 uppercase font-bold">E-mail</p><p className="text-slate-200">{citizen.email}</p></div>
-            <div><p className="text-xs text-slate-500 uppercase font-bold">Telefone</p><p className="text-slate-200">{citizen.phone}</p></div>
-            <div><p className="text-xs text-slate-500 uppercase font-bold">Endereço Completo</p><p className="text-slate-200">{citizen.address}</p></div>
-            <div><p className="text-xs text-slate-500 uppercase font-bold">Membro desde</p><p className="text-slate-200">{new Date(citizen.createdAt).toLocaleDateString()}</p></div>
-            {citizen.credentialId && (
+          {editProfile ? (
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-3">
+              <p className="text-sm font-bold text-cyan-400">Editar Dados Pessoais</p>
+              <InputField label="Nome completo" value={profileForm.name} onChange={e => setProfileForm({...profileForm, name: e.target.value})} />
+              <InputField label="E-mail" type="email" value={profileForm.email} onChange={e => setProfileForm({...profileForm, email: e.target.value})} />
+              <InputField label="Telefone" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} placeholder="(85) 99999-9999" />
+              <InputField label="Data de nascimento" value={profileForm.birthDate} onChange={e => setProfileForm({...profileForm, birthDate: e.target.value})} placeholder="1986-09-06" />
               <div className="pt-2 border-t border-white/10">
-                <p className="text-xs text-emerald-400 font-bold">🔐 Biometria cadastrada neste dispositivo</p>
+                <p className="text-xs text-slate-500 uppercase font-bold mb-1">🩸 Tipo Sanguíneo</p>
+                <select value={profileForm.bloodType} onChange={e => setProfileForm({...profileForm, bloodType: e.target.value})}
+                  className="w-full p-3 rounded-xl bg-slate-900 border border-slate-700 outline-none focus:border-red-500 text-sm text-slate-300">
+                  <option value="">Selecione</option>
+                  {['A+','A-','B+','B-','AB+','AB-','O+','O-'].map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
               </div>
-            )}
-          </div>
+              <div className="pt-2 border-t border-white/10">
+                <p className="text-xs text-slate-500 uppercase font-bold mb-1">🏠 Endereço</p>
+                <InputField label="CEP" value={profileForm.cep} onChange={e => { setProfileForm({...profileForm, cep: e.target.value}); if (e.target.value.replace(/\D/g,'').length===8) buscarCep(e.target.value); }} placeholder="00000-000" />
+                <div className="flex gap-2">
+                  <div className="flex-1"><InputField label="Logradouro" value={profileForm.logradouro} onChange={e => setProfileForm({...profileForm, logradouro: e.target.value})} /></div>
+                  <div className="w-24"><InputField label="Número" value={profileForm.numero} onChange={e => setProfileForm({...profileForm, numero: e.target.value})} /></div>
+                </div>
+                <InputField label="Complemento" value={profileForm.complemento} onChange={e => setProfileForm({...profileForm, complemento: e.target.value})} />
+                <div className="flex gap-2">
+                  <div className="flex-1"><InputField label="Bairro" value={profileForm.bairro} onChange={e => setProfileForm({...profileForm, bairro: e.target.value})} /></div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex-1"><InputField label="Cidade" value={profileForm.cidade} onChange={e => setProfileForm({...profileForm, cidade: e.target.value})} /></div>
+                  <div className="w-20"><InputField label="UF" value={profileForm.uf} onChange={e => setProfileForm({...profileForm, uf: e.target.value})} maxLength={2} /></div>
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  if (!profileForm.name?.trim()) { showToast('Nome é obrigatório', 'error'); return; }
+                  setLoading(true);
+                  const updateBody: any = {
+                    name: profileForm.name, email: profileForm.email, phone: profileForm.phone,
+                    birthDate: profileForm.birthDate, bloodType: profileForm.bloodType,
+                    address: [profileForm.logradouro, profileForm.numero, profileForm.complemento, profileForm.bairro, profileForm.cidade, profileForm.uf, profileForm.cep].filter(Boolean).join(', ') || profileForm.address,
+                  };
+                  if (profilePhoto) updateBody.facePhotoUrl = profilePhoto;
+                  const res = await apiFetch(`/citizens/${citizen.id}`, { method: 'PATCH', body: JSON.stringify(updateBody) });
+                  const json = await res.json();
+                  if (json.success) { setCitizen(json.data); setEditProfile(false); showToast('Perfil atualizado!', 'success'); }
+                  else showToast(json.error, 'error');
+                  setLoading(false);
+                }}
+                disabled={loading}
+                className="w-full p-3 rounded-xl bg-cyan-600 font-bold text-sm hover:bg-cyan-500 disabled:opacity-50"
+              >💾 Salvar alterações</button>
+            </div>
+          ) : (
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+              {citizen.bloodType && (
+                <div className={`p-3 rounded-xl text-center ${['AB-', 'B-', 'A-', 'O-'].includes(citizen.bloodType) ? 'bg-red-500/10 border border-red-500/30' : 'bg-red-500/5 border border-red-500/20'}`}>
+                  <p className="text-sm text-red-300 font-bold">🩸 Tipo Sanguíneo: {citizen.bloodType}</p>
+                </div>
+              )}
+              <div><p className="text-xs text-slate-500 uppercase font-bold">CPF</p><p className="text-slate-200">{citizen.cpf}</p></div>
+              <div><p className="text-xs text-slate-500 uppercase font-bold">E-mail</p><p className="text-slate-200">{citizen.email}</p></div>
+              <div><p className="text-xs text-slate-500 uppercase font-bold">Telefone</p><p className="text-slate-200">{citizen.phone}</p></div>
+              {citizen.birthDate && <div><p className="text-xs text-slate-500 uppercase font-bold">Nascimento</p><p className="text-slate-200">{citizen.birthDate}</p></div>}
+              <div><p className="text-xs text-slate-500 uppercase font-bold">Endereço</p><p className="text-slate-200">{citizen.address}</p></div>
+              <div><p className="text-xs text-slate-500 uppercase font-bold">Membro desde</p><p className="text-slate-200">{new Date(citizen.createdAt).toLocaleDateString()}</p></div>
+              {citizen.credentialId && (
+                <div className="pt-2 border-t border-white/10">
+                  <p className="text-xs text-emerald-400 font-bold">🔐 Biometria cadastrada neste dispositivo</p>
+                </div>
+              )}
+            </div>
+          )}
 
-          {/* Próximo Agendamento */}
           <AppointmentCard citizenId={citizen?.id} />
         </main>
       )}
@@ -2069,6 +2209,15 @@ export default function EcoSolidApp() {
       {dashboardTab === 'OVERVIEW' && (
         <main className="p-6 max-w-md mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
           <section className="p-8 rounded-3xl bg-white/5 border border-white/10 shadow-2xl relative overflow-hidden">
+            {citizen.bloodType ? (
+              <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-red-500/20 border border-red-500/30 mb-2">
+                <span className="text-xs text-red-400 font-bold">🩸 {citizen.bloodType}</span>
+              </div>
+            ) : (
+              <button onClick={() => setDashboardTab('PROFILE')} className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-yellow-500/20 border border-yellow-500/30 mb-2 text-xs text-yellow-400 font-bold hover:bg-yellow-500/30">
+                ⚠️ Cadastrar tipo sanguíneo
+              </button>
+            )}
             <p className="text-sm text-slate-400">Saldo Consolidado</p>
             <div className="flex items-end gap-2 mb-6">
               <h2 className="text-5xl font-black">{citizen.totalPoints}</h2>

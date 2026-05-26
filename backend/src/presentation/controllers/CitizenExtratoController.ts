@@ -167,4 +167,42 @@ export class CitizenExtratoController {
       return { success: false, error: error.message };
     }
   }
+
+  @Get('crypto/pendentes')
+  async verificarPendentes() {
+    try {
+      const apiKey = process.env.ETHERSCAN_API_KEY || '';
+      const pendentes = await this.cryptoModel.find({ status: 'pendente' }).lean().exec();
+      let atualizados = 0;
+
+      for (const tx of pendentes) {
+        // Só consultar Etherscan se o hash parece real (0x + 64 hex)
+        if (!tx.hash || !tx.hash.startsWith('0x') || tx.hash.length !== 66) {
+          // Hash mock ou pendente — se > 24h, marcar como falhou
+          const age = Date.now() - new Date(tx.createdAt).getTime();
+          if (age > 24 * 60 * 60 * 1000) {
+            await this.cryptoModel.updateOne({ _id: tx._id }, { status: 'falhou' });
+            atualizados++;
+          }
+          continue;
+        }
+
+        try {
+          if (apiKey) {
+            const url = `https://api-sepolia.etherscan.io/api?module=transaction&action=gettxreceiptstatus&txhash=${tx.hash}&apikey=${apiKey}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data?.result?.status === '1') {
+              await this.cryptoModel.updateOne({ _id: tx._id }, { status: 'confirmado' });
+              atualizados++;
+            }
+          }
+        } catch {}
+      }
+
+      return { success: true, message: `${atualizados} transações atualizadas de ${pendentes.length} pendentes` };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
 }
