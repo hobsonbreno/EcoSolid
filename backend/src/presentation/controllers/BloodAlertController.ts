@@ -12,14 +12,18 @@ export class BloodAlertController {
   @Post('blood')
   async createAlert(@Body() body: { bloodType: string; message: string; hospital: string; location?: string }) {
     try {
+      if (!body.bloodType?.trim()) return { success: false, error: 'bloodType é obrigatório' };
+      if (!body.message?.trim()) return { success: false, error: 'message é obrigatório' };
+      if (!body.hospital?.trim()) return { success: false, error: 'hospital é obrigatório' };
+
+      const bloodType = body.bloodType.toUpperCase().trim();
+
       const alert = await this.alertModel.create({
-        bloodType: body.bloodType.toUpperCase(),
+        bloodType,
         message: body.message,
         hospital: body.hospital,
         location: body.location || 'Fortaleza - CE',
       });
-
-      const bloodType = body.bloodType.toUpperCase();
 
       // Buscar cidadãos com o tipo sanguíneo
       const citizens = await this.citizenModel.find({
