@@ -1538,6 +1538,28 @@ export default function EcoSolidApp() {
     );
   };
 
+  const filteredCitizenRedemptionsData = useMemo(() => {
+    try {
+      const now = new Date();
+      let dateSince: Date | null = null;
+      if (histRedempFilter === 'hoje') { dateSince = new Date(); dateSince.setHours(0,0,0,0); }
+      else if (histRedempFilter === '7dias') dateSince = new Date(now.getTime() - 7*86400000);
+      else if (histRedempFilter === '30dias') dateSince = new Date(now.getTime() - 30*86400000);
+      const filtered = citizenRedemptions.filter((r: any) => {
+        if (!r) return false;
+        if (dateSince && new Date(r?.createdAt ?? 0) < dateSince) return false;
+        if (histRedempBusca && !((r?.code ?? '').toLowerCase().includes(histRedempBusca.toLowerCase()) || (r?.benefitDescription ?? '').toLowerCase().includes(histRedempBusca.toLowerCase()))) return false;
+        return true;
+      });
+      const tp = Math.ceil(filtered.length / HIST_REDEMP_PAGE_SIZE);
+      const pg = Math.min(histRedempPage, tp);
+      const pd = filtered.slice((pg-1)*HIST_REDEMP_PAGE_SIZE, pg*HIST_REDEMP_PAGE_SIZE);
+      return { filtered, tp, pg, pd };
+    } catch {
+      return null;
+    }
+  }, [citizenRedemptions, histRedempFilter, histRedempBusca, histRedempPage]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-white font-sans pb-24">
       {/* Tela de configuração de permissões (primeiro acesso) */}
@@ -1736,60 +1758,44 @@ export default function EcoSolidApp() {
                   onChange={e => { setHistRedempBusca(e.target.value); setHistRedempPage(1); }}
                   className="flex-1 p-2 rounded-lg bg-slate-900 border border-slate-700 text-sm outline-none focus:border-amber-500" />
               </div>
-              {useMemo(() => {
-                try {
-                const now = new Date();
-                let dateSince: Date | null = null;
-                if (histRedempFilter === 'hoje') { dateSince = new Date(); dateSince.setHours(0,0,0,0); }
-                else if (histRedempFilter === '7dias') dateSince = new Date(now.getTime() - 7*86400000);
-                else if (histRedempFilter === '30dias') dateSince = new Date(now.getTime() - 30*86400000);
-                const filtered = citizenRedemptions.filter((r: any) => {
-                  if (!r) return false;
-                  if (dateSince && new Date(r?.createdAt ?? 0) < dateSince) return false;
-                  if (histRedempBusca && !((r?.code ?? '').toLowerCase().includes(histRedempBusca.toLowerCase()) || (r?.benefitDescription ?? '').toLowerCase().includes(histRedempBusca.toLowerCase()))) return false;
-                  return true;
-                });
-                if (filtered.length === 0) return <p key="empty" className="text-xs text-slate-500 text-center py-4">Nenhum resgate encontrado.</p>;
-                const tp = Math.ceil(filtered.length / HIST_REDEMP_PAGE_SIZE);
-                const pg = Math.min(histRedempPage, tp);
-                const pd = filtered.slice((pg-1)*HIST_REDEMP_PAGE_SIZE, pg*HIST_REDEMP_PAGE_SIZE);
-                return <div key="list"><div className="space-y-3">{pd.map((r: any) => {
-                  if (!r || typeof r !== 'object') return null;
-                  try {
-                  return (
-                  <div key={r?._id || Math.random()} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-1">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-lg">{r?.partnerIcon || '🎁'}</span>
-                          <span className="font-bold text-sm">{r?.benefitDescription ?? 'Sem descrição'}</span>
+              {!filteredCitizenRedemptionsData ? (
+                <p key="error" className="text-xs text-red-400 text-center py-4 bg-red-500/10 rounded-lg border border-red-500/20">Erro ao carregar histórico. Tente novamente.</p>
+              ) : filteredCitizenRedemptionsData.filtered.length === 0 ? (
+                <p key="empty" className="text-xs text-slate-500 text-center py-4">Nenhum resgate encontrado.</p>
+              ) : (
+                <div key="list">
+                  <div className="space-y-3">
+                    {filteredCitizenRedemptionsData.pd.map((r: any) => {
+                      if (!r || typeof r !== 'object') return null;
+                      return (
+                        <div key={r?._id || Math.random()} className="p-3 rounded-lg bg-slate-800/30 border border-slate-700/50 space-y-1">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg">{r?.partnerIcon || '🎁'}</span>
+                                <span className="font-bold text-sm">{r?.benefitDescription ?? 'Sem descrição'}</span>
+                              </div>
+                              <p className="text-xs font-mono text-slate-500">{r?.code ?? '—'}</p>
+                              <p className="text-xs text-slate-400">{r?.partnerOrgao || r?.partnerName || 'Parceiro'} · {r?.solidCost ?? 0} SOLID</p>
+                              <p className="text-xs text-slate-500">{r?.createdAt ? new Date(r.createdAt).toLocaleString('pt-BR') : '—'}</p>
+                            </div>
+                            <span className={'text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap '+((r?.status==='CONFIRMADO'||r?.status==='validated')?'bg-emerald-500/20 text-emerald-400':(r?.status==='EXPIRADO'||r?.status==='expired')?'bg-red-500/20 text-red-400':'bg-yellow-500/20 text-yellow-400')}>
+                              {(r?.status==='CONFIRMADO'||r?.status==='validated')?'✅ Confirmado':(r?.status==='EXPIRADO'||r?.status==='expired')?'❌ Expirado':'🟡 Pendente'}
+                            </span>
+                          </div>
                         </div>
-                        <p className="text-xs font-mono text-slate-500">{r?.code ?? '—'}</p>
-                        <p className="text-xs text-slate-400">{r?.partnerOrgao || r?.partnerName || 'Parceiro'} · {r?.solidCost ?? 0} SOLID</p>
-                        <p className="text-xs text-slate-500">{r?.createdAt ? new Date(r.createdAt).toLocaleString('pt-BR') : '—'}</p>
-                      </div>
-                      <span className={'text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap '+((r?.status==='CONFIRMADO'||r?.status==='validated')?'bg-emerald-500/20 text-emerald-400':(r?.status==='EXPIRADO'||r?.status==='expired')?'bg-red-500/20 text-red-400':'bg-yellow-500/20 text-yellow-400')}>
-                        {(r?.status==='CONFIRMADO'||r?.status==='validated')?'✅ Confirmado':(r?.status==='EXPIRADO'||r?.status==='expired')?'❌ Expirado':'🟡 Pendente'}
-                      </span>
+                      );
+                    })}
+                  </div>
+                  {filteredCitizenRedemptionsData.filtered.length > HIST_REDEMP_PAGE_SIZE && (
+                    <div key="pagi" className="flex items-center justify-between pt-2">
+                      <button onClick={() => setHistRedempPage(p => Math.max(1, p-1))} disabled={filteredCitizenRedemptionsData.pg <= 1} className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Anterior</button>
+                      <span className="text-xs text-slate-500">Página {filteredCitizenRedemptionsData.pg} de {filteredCitizenRedemptionsData.tp} ({filteredCitizenRedemptionsData.filtered.length} itens)</span>
+                      <button onClick={() => setHistRedempPage(p => Math.min(filteredCitizenRedemptionsData.tp, p+1))} disabled={filteredCitizenRedemptionsData.pg >= filteredCitizenRedemptionsData.tp} className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Próxima</button>
                     </div>
-                  </div>
-                  );
-                  } catch {
-                    return null;
-                  }
-                })}</div>
-                {filtered.length > HIST_REDEMP_PAGE_SIZE && (
-                  <div key="pagi" className="flex items-center justify-between pt-2">
-                    <button onClick={() => setHistRedempPage(p => Math.max(1, p-1))} disabled={pg <= 1} className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Anterior</button>
-                    <span className="text-xs text-slate-500">Página {pg} de {tp} ({filtered.length} itens)</span>
-                    <button onClick={() => setHistRedempPage(p => Math.min(tp, p+1))} disabled={pg >= tp} className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50">Próxima</button>
-                  </div>
-                )}
+                  )}
                 </div>
-                } catch {
-                  return <p key="error" className="text-xs text-red-400 text-center py-4 bg-red-500/10 rounded-lg border border-red-500/20">Erro ao carregar histórico. Tente novamente.</p>;
-                }
-              }, [citizenRedemptions, histRedempFilter, histRedempBusca, histRedempPage])}
+              )}
           </>)}
           </div>
         </main>
