@@ -23,6 +23,15 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
+function QRCodeDisplay({ address }: { address: string }) {
+  const [qrData, setQrData] = useState<string | null>(null);
+  useEffect(() => {
+    QRCodeLib.toDataURL(address || '0x', { width: 160, margin: 2, color: { dark: '#000', light: '#fff' } })
+      .then(setQrData).catch(() => {});
+  }, [address]);
+  return qrData ? <img src={qrData} alt="QR Code" className="mx-auto rounded-xl border border-white/10" /> : null;
+}
+
 const apiFetch = (path: string, options?: RequestInit) =>
   fetch(`${BACKEND_URL}${path}`, {
     ...options,
@@ -1670,6 +1679,12 @@ export default function EcoSolidApp() {
                     setLoading(false);
                   }} disabled={loading} className="p-2 rounded-lg bg-cyan-600 text-xs font-bold hover:bg-cyan-500">🔄 Atualizar</button>
                 </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setCryptoModal({ type: 'send' })}
+                    className="flex-1 p-2 rounded-lg bg-orange-600 text-xs font-bold hover:bg-orange-500">📤 Enviar Cripto</button>
+                  <button onClick={() => setCryptoModal({ type: 'receive' })}
+                    className="flex-1 p-2 rounded-lg bg-slate-600 text-xs font-bold hover:bg-slate-500">📥 Receber Cripto</button>
+                </div>
                 <button
                   onClick={() => {
                     setWalletBalance(null);
@@ -2405,11 +2420,18 @@ Verificado por EcoSolid — blockchain pública`;
                       const val = (document.getElementById('cryptoSendVal') as HTMLInputElement)?.value;
                       if (!addr || !val) { showToast('Preencha endereço e valor', 'error'); return; }
                       try {
+                        // Verificar chain Sepolia
+                        const chainId = await (window as any).ethereum.request({ method: 'eth_chainId' });
+                        if (chainId !== '0xaa36a7') {
+                          try { await (window as any).ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xaa36a7' }] }); }
+                          catch { showToast('Troque para a rede Sepolia no MetaMask', 'error'); return; }
+                        }
                         const tx = await (window as any).ethereum.request({
                           method: 'eth_sendTransaction',
                           params: [{ from: citizen.walletAddress, to: addr, value: '0x' + (BigInt(Math.floor(parseFloat(val) * 1e18))).toString(16) }],
                         });
-                        showToast('Transação enviada! Hash: ' + (tx || '').substring(0, 10) + '...', 'success');
+                        const txLink = `https://sepolia.etherscan.io/tx/${tx}`;
+                        showToast(`Tx enviada! ${tx.substring(0, 10)}... — ${txLink}`, 'success');
                         setCryptoModal(null);
                       } catch (e: any) { showToast('Erro: ' + (e?.message || 'Transação rejeitada'), 'error'); }
                     }}
@@ -2426,7 +2448,9 @@ Verificado por EcoSolid — blockchain pública`;
                 <p className="text-sm text-slate-400">Seu endereço para receber:</p>
                 {citizen?.walletAddress ? (
                   <>
-                    <div className="p-3 rounded-lg bg-slate-800 break-all font-mono text-xs text-orange-300">{citizen.walletAddress}</div>
+                    <div className="p-3 rounded-lg bg-slate-800 break-all font-mono text-xs text-cyan-300">{citizen.walletAddress}</div>
+                    <QRCodeDisplay address={citizen.walletAddress} />
+                    {metaMaskBal && <p className="text-xs text-slate-400">Saldo: <span className="text-emerald-400 font-bold">{metaMaskBal} ETH</span> {quotes.eth ? <span className="text-slate-500">(~R$ {(parseFloat(metaMaskBal) * quotes.eth).toFixed(2)})</span> : null}</p>}
                     <button onClick={() => { navigator.clipboard.writeText(citizen.walletAddress || ''); showToast('Endereço copiado!', 'success'); }}
                       className="w-full p-3 rounded-xl bg-slate-700 font-bold text-sm hover:bg-slate-600">📋 Copiar Endereço</button>
                   </>
