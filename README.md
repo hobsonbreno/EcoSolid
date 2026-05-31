@@ -11,8 +11,22 @@
 [![Blockchain](https://img.shields.io/badge/Blockchain-Ethereum%20Sepolia-627EEA?logo=ethereum)](./blockchain)
 [![DB](https://img.shields.io/badge/Database-MongoDB-47A248?logo=mongodb)](https://mongodb.com)
 [![Deploy](https://img.shields.io/badge/Deploy-Vercel%20%2B%20Railway-000?logo=vercel)](https://vercel.com)
+[![PWA](https://img.shields.io/badge/PWA-eco--solid.vercel.app-22c55e?logo=vercel)](https://eco-solid.vercel.app)
+[![Contrato](https://img.shields.io/badge/Contrato-Sepolia%20Etherscan-627EEA?logo=ethereum)](https://sepolia.etherscan.io/address/0x7D80E2803a87D0d1d748d6C2b2360fD6E1F088B6)
 
 </div>
+
+---
+
+## 🔗 Smart Contract em Produção
+
+| Item | Valor |
+|---|---|
+| **Rede** | Ethereum Sepolia Testnet |
+| **Endereço do Contrato** | [`0x7D80E2803a87D0d1d748d6C2b2360fD6E1F088B6`](https://sepolia.etherscan.io/address/0x7D80E2803a87D0d1d748d6C2b2360fD6E1F088B6) |
+| **Etherscan** | https://sepolia.etherscan.io/address/0x7D80E2803a87D0d1d748d6C2b2360fD6E1F088B6 |
+| **Frontend (PWA)** | https://eco-solid.vercel.app |
+| **Portal de Parceiros** | https://eco-solid.vercel.app/gestao |
 
 ---
 
@@ -372,7 +386,17 @@ frontend/src/app/
 
 ## 🌐 Deploy
 
-| Serviço | Plataforma | Comando |
+### URLs em Produção
+
+| Serviço | URL |
+|---|---|
+| **PWA (cidadão)** | https://eco-solid.vercel.app |
+| **Portal de Parceiros** | https://eco-solid.vercel.app/gestao |
+| **Smart Contract** | [0x7D80E2803a...088B6](https://sepolia.etherscan.io/address/0x7D80E2803a87D0d1d748d6C2b2360fD6E1F088B6) |
+
+### Plataformas
+
+| Serviço | Plataforma | Como fazer deploy |
 |---|---|---|
 | Frontend | Vercel | `vercel --prod` (na pasta `frontend/`) |
 | Backend | Railway | Push automático via GitHub |
