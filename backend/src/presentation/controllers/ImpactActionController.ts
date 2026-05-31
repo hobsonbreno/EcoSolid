@@ -31,8 +31,29 @@ export class ImpactActionController {
   @Get('citizen/:citizenId')
   async getHistory(@Param('citizenId') citizenId: string) {
     try {
-      const actions = await this.impactRepo.findByCitizenId(citizenId);
+      // Fix 3: excluir evidenceUrl do payload de listagem (cada foto tem até 6MB em Base64)
+      // O frontend só precisa da URL/thumb na tela de detalhes, não no histórico geral
+      const actions = await this.impactModel
+        .find({ citizenId }, { evidenceUrl: 0 })
+        .sort({ timestamp: -1 })
+        .lean()
+        .exec();
       return { success: true, data: actions };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  @Get('citizen/:citizenId/action/:actionId/photo')
+  async getActionPhoto(@Param('citizenId') citizenId: string, @Param('actionId') actionId: string) {
+    try {
+      // Rota separada para buscar a foto de uma ação específica (somente quando necessário)
+      const action = await this.impactModel
+        .findOne({ _id: actionId, citizenId }, { evidenceUrl: 1 })
+        .lean()
+        .exec();
+      if (!action) return { success: false, error: 'Ação não encontrada' };
+      return { success: true, data: { evidenceUrl: action.evidenceUrl } };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

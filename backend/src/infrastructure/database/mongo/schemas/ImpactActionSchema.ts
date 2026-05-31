@@ -17,6 +17,10 @@ export const ImpactActionSchema = new Schema({
   timestamp: { type: Date, default: Date.now },
 });
 
+// Fix 2: Índices para eliminar full collection scans nas queries frequentes
+ImpactActionSchema.index({ citizenId: 1, timestamp: -1 }); // GET histórico do cidadão
+ImpactActionSchema.index({ status: 1, timestamp: -1 });     // GET pendentes por status
+
 export interface ImpactActionDocument extends Omit<Document, '_id'> {
   _id: string;
   citizenId: string;
