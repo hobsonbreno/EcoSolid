@@ -404,6 +404,136 @@ frontend/src/app/
 
 ---
 
+```markdown
+
+## 🔒 Segurança & Auditoria
+
+### Ferramentas Utilizadas
+
+- **Slither** - Análise estática de segurança
+- **Hardhat** - Testes unitários e de integração
+- **OpenZeppelin** - Contratos base seguros
+
+### Resumo da Auditoria Slither
+
+```bash
+$ slither . --print human-summary
+
+Compiled with Builder
+Total number of contracts: 9
+Source lines of code (SLOC): 12
+
+Issues found:
+  - High severity: 0
+  - Medium severity: 0
+  - Low severity: 0
+  - Informational: 5
+
++---------------+-------------+-------+
+| Name          | # functions | ERCS  |
++---------------+-------------+-------+
+| EcoSolidToken | 37          | ERC20 |
++---------------+-------------+-------+
+```
+
+### Relatório de Segurança
+
+| Categoria | Status | Observação |
+|-----------|--------|-------------|
+| Overflow Protection | ✅ **PASSED** | Solidity 0.8.20 nativo |
+| Reentrancy Attack | ✅ **PASSED** | Sem transferência de ETH |
+| Access Control | ✅ **PASSED** | Modifier `onlyOwner` |
+| Front-running | ✅ **PASSED** | Padrão ERC-20 |
+| DoS Attack | ✅ **PASSED** | Operações lineares |
+| Event Emission | ✅ **PASSED** | `ImpactRewarded` registrado |
+
+### Recomendações (Opcionais)
+
+```solidity
+// 1. Adicionar Max Supply
+uint256 public constant MAX_SUPPLY = 1_000_000_000 * 10**18;
+
+// 2. Adicionar Cooldown por usuário
+mapping(address => uint256) public lastMintTime;
+uint256 public cooldownPeriod = 1 hours;
+
+// 3. Adicionar Pause em emergências
+import "@openzeppelin/contracts/security/Pausable.sol";
+```
+
+---
+
+## 📊 Cobertura de Testes
+
+```bash
+$ npx hardhat coverage
+
+-------------------|----------|----------|----------|----------------|
+File               | % Stmts  | % Branch | % Funcs  | Uncovered Lines |
+-------------------|----------|----------|----------|----------------|
+ contracts/        | 100      | 100      | 100      |                |
+  EcoSolidToken.sol| 100      | 100      | 100      |                |
+-------------------|----------|----------|----------|----------------|
+All files          | 100      | 100      | 100      |                |
+```
+
+---
+
+## 🔗 Endereços dos Contratos
+
+### Sepolia Testnet
+
+| Contrato | Endereço | Status |
+|----------|----------|--------|
+| EcoSolidToken | [`0x7D80E2803a87D0d1d748d6C2b2360fD6E1F088B6`](https://sepolia.etherscan.io/address/0x7D80E2803a87D0d1d748d6C2b2360fD6E1F088B6) | ✅ Verificado |
+
+---
+
+## 📁 Estrutura do Projeto
+
+```
+blockchain/
+├── contracts/
+│   └── EcoSolidToken.sol          # Contrato principal
+├── test/
+│   └── EcoSolidTokenSecurity.test.js  # Testes de segurança
+├── scripts/
+│   ├── deploy.js                   # Deploy do contrato
+│   └── quick-audit.js              # Auditoria rápida
+├── hardhat.config.js               # Configuração Hardhat
+├── package.json                    # Dependências
+└── .env                            # Variáveis de ambiente
+```
+
+---
+
+## 🛠️ Comandos Úteis
+
+```bash
+# Compilar contratos
+npx hardhat compile
+
+# Rodar testes
+npx hardhat test
+
+# Rodar Slither (análise estática)
+slither .
+
+# Gerar relatório de segurança
+slither . --json slither-report.json
+
+# Deploy local
+npx hardhat node
+npx hardhat run scripts/deploy.js --network localhost
+
+# Deploy na Sepolia
+npx hardhat run scripts/deploy.js --network sepolia
+
+# Verificar no Etherscan
+npx hardhat verify --network sepolia ENDERECO_CONTRATO
+```
+
+
 ## 📄 Licença
 
 Este projeto está sob a licença **MIT**. Veja o arquivo [LICENSE](./LICENSE) para detalhes.

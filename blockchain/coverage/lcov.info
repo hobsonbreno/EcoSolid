@@ -1,0 +1,18 @@
+TN:
+SF:C:\Users\Prof Wangles\Documents\WEB 3.0\EcoSolid\blockchain\contracts\EcoSolidToken.sol
+FN:18,constructor
+FN:26,mintImpactReward
+FNF:2
+FNH:0
+FNDA:0,constructor
+FNDA:0,mintImpactReward
+DA:28,0
+DA:31,0
+DA:34,0
+LF:3
+LH:0
+BRDA:26,1,0,0
+BRDA:26,1,1,0
+BRF:2
+BRH:0
+end_of_record
