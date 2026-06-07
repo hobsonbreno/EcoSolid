@@ -6,10 +6,24 @@ export class RegisterCitizenUseCase {
   constructor(private readonly citizenRepository: ICitizenRepository) {}
   async execute(dto: RegisterCitizenDto): Promise<Citizen> {
     if (dto.walletAddress) {
-      const existingCitizen = await this.citizenRepository.findByWallet(dto.walletAddress);
-      if (existingCitizen) throw new Error('Cidadão com esta carteira já está registrado.');
+      const existingCitizen = await this.citizenRepository.findByWallet(
+        dto.walletAddress,
+      );
+      if (existingCitizen)
+        throw new Error('Cidadão com esta carteira já está registrado.');
     }
-    const newCitizen = new Citizen(randomUUID(), dto.name, dto.walletAddress, dto.cpf, dto.email, dto.phone, dto.birthDate, dto.address, dto.facePhotoUrl);
+    const newCitizen = new Citizen(
+      randomUUID(),
+      dto.name,
+      dto.walletAddress,
+      dto.cpf,
+      dto.email,
+      dto.phone,
+      dto.bloodType,
+      dto.birthDate,
+      dto.address,
+      dto.facePhotoUrl,
+    );
     await this.citizenRepository.save(newCitizen);
     return newCitizen;
   }

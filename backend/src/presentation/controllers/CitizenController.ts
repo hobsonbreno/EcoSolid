@@ -1,4 +1,12 @@
-import { Controller, Post, Body, Get, Patch, Param, Inject } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Patch,
+  Param,
+  Inject,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { CitizenDocument } from '../../infrastructure/database/mongo/schemas/CitizenSchema';
@@ -12,8 +20,10 @@ export class CitizenController {
   constructor(
     private readonly registerUseCase: RegisterCitizenUseCase,
     private readonly getUseCase: GetCitizenUseCase,
-    @Inject('ICitizenRepository') private readonly citizenRepo: ICitizenRepository,
-    @InjectModel('Citizen') private readonly citizenModel: Model<CitizenDocument>,
+    @Inject('ICitizenRepository')
+    private readonly citizenRepo: ICitizenRepository,
+    @InjectModel('Citizen')
+    private readonly citizenModel: Model<CitizenDocument>,
   ) {}
 
   @Post()
@@ -42,7 +52,8 @@ export class CitizenController {
     try {
       const bloodType = type.toUpperCase();
       // Buscar cidadãos com bloodType OU que doaram sangue daquele tipo
-      const impactModel = (this.citizenModel as any).db?.model('ImpactAction') ||
+      const impactModel =
+        (this.citizenModel as any).db?.model('ImpactAction') ||
         require('mongoose').model('ImpactAction');
       const donors = await impactModel
         .find({ actionType: 'BLOOD_DONATION', bloodType })
@@ -88,23 +99,49 @@ export class CitizenController {
   @Patch(':id')
   async updateCitizen(@Param('id') id: string, @Body() body: any) {
     try {
-      const allowedFields = ['bloodType', 'phone', 'email', 'address', 'pixKey', 'pixKeyType'];
+      const allowedFields = [
+        'name',
+        'cpf',
+        'birthDate',
+        'facePhotoUrl',
+        'bloodType',
+        'phone',
+        'email',
+        'address',
+        'pixKey',
+        'pixKeyType',
+      ];
       const update: any = {};
       for (const key of allowedFields) {
         if (body[key] !== undefined) update[key] = body[key];
       }
-      if (Object.keys(update).length === 0) return { success: false, error: 'Nenhum campo válido para atualizar' };
+      if (Object.keys(update).length === 0)
+        return { success: false, error: 'Nenhum campo válido para atualizar' };
 
-      const citizen = await this.citizenModel.findByIdAndUpdate(id, update, { new: true }).lean().exec();
+      const citizen = await this.citizenModel
+        .findByIdAndUpdate(id, update, { new: true })
+        .lean()
+        .exec();
       if (!citizen) return { success: false, error: 'Cidadão não encontrado' };
-      return { success: true, data: citizen, message: 'Dados atualizados com sucesso!' };
+      return {
+        success: true,
+        data: citizen,
+        message: 'Dados atualizados com sucesso!',
+      };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
   }
 
   @Post('biometric/register')
-  async registerBiometric(@Body() body: { citizenId: string; credentialId: string; credentialPublicKey: string }) {
+  async registerBiometric(
+    @Body()
+    body: {
+      citizenId: string;
+      credentialId: string;
+      credentialPublicKey: string;
+    },
+  ) {
     try {
       const citizen = await this.citizenRepo.findById(body.citizenId);
       if (!citizen) return { success: false, error: 'Cidadão não encontrado' };
@@ -120,9 +157,14 @@ export class CitizenController {
   }
 
   @Patch(':id/push-token')
-  async savePushToken(@Param('id') id: string, @Body() body: { pushToken: any }) {
+  async savePushToken(
+    @Param('id') id: string,
+    @Body() body: { pushToken: any },
+  ) {
     try {
-      await this.citizenModel.findByIdAndUpdate(id, { pushToken: body.pushToken });
+      await this.citizenModel.findByIdAndUpdate(id, {
+        pushToken: body.pushToken,
+      });
       return { success: true, message: 'Push token salvo' };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -130,18 +172,29 @@ export class CitizenController {
   }
 
   @Patch(':id/wallet')
-  async addWallet(@Param('id') id: string, @Body() body: { walletAddress: string; type?: string }) {
+  async addWallet(
+    @Param('id') id: string,
+    @Body() body: { walletAddress: string; type?: string },
+  ) {
     try {
       const citizen = await this.citizenRepo.findById(id);
       if (!citizen) return { success: false, error: 'Cidadão não encontrado' };
 
       const dupe = await this.citizenRepo.findByWallet(body.walletAddress);
-      if (dupe && dupe.id !== id) return { success: false, error: 'Esta carteira já está vinculada a outra conta.' };
+      if (dupe && dupe.id !== id)
+        return {
+          success: false,
+          error: 'Esta carteira já está vinculada a outra conta.',
+        };
 
       citizen.walletAddress = body.walletAddress;
       await this.citizenRepo.save(citizen);
 
-      return { success: true, data: citizen, message: `Carteira ${body.type || ''} vinculada com sucesso` };
+      return {
+        success: true,
+        data: citizen,
+        message: `Carteira ${body.type || ''} vinculada com sucesso`,
+      };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -150,8 +203,14 @@ export class CitizenController {
   @Post('biometric/login')
   async loginBiometric(@Body() body: { credentialId: string }) {
     try {
-      const citizen = await this.citizenRepo.findByCredentialId(body.credentialId);
-      if (!citizen) return { success: false, error: 'Biometria não encontrada. Faça login primeiro.' };
+      const citizen = await this.citizenRepo.findByCredentialId(
+        body.credentialId,
+      );
+      if (!citizen)
+        return {
+          success: false,
+          error: 'Biometria não encontrada. Faça login primeiro.',
+        };
 
       return { success: true, data: citizen };
     } catch (error: any) {
