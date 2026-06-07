@@ -9,14 +9,17 @@ export class AppointmentController {
   ) {}
 
   @Post()
-  async create(@Body() body: {
-    citizenId: string;
-    citizenName: string;
-    date: string;
-    time: string;
-    notes?: string;
-    location?: string;
-  }) {
+  async create(
+    @Body()
+    body: {
+      citizenId: string;
+      citizenName: string;
+      date: string;
+      time: string;
+      notes?: string;
+      location?: string;
+    },
+  ) {
     try {
       const appointment = await this.appointmentModel.create({
         citizenId: body.citizenId,
@@ -27,7 +30,11 @@ export class AppointmentController {
         location: body.location || 'HemoSangue CE',
         status: 'agendado',
       });
-      return { success: true, data: appointment, message: 'Agendamento criado com sucesso!' };
+      return {
+        success: true,
+        data: appointment,
+        message: 'Agendamento criado com sucesso!',
+      };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -36,7 +43,11 @@ export class AppointmentController {
   @Get()
   async listAll() {
     try {
-      const appointments = await this.appointmentModel.find().sort({ createdAt: -1 }).lean().exec();
+      const appointments = await this.appointmentModel
+        .find()
+        .sort({ createdAt: -1 })
+        .lean()
+        .exec();
       return { success: true, data: appointments };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -58,19 +69,35 @@ export class AppointmentController {
   }
 
   @Patch(':id/status')
-  async updateStatus(@Param('id') id: string, @Body() body: { status: string }) {
+  async updateStatus(
+    @Param('id') id: string,
+    @Body() body: { status: string },
+  ) {
     try {
-      const validStatuses = ['agendado', 'confirmado', 'realizado', 'cancelado'];
+      const validStatuses = [
+        'agendado',
+        'confirmado',
+        'realizado',
+        'cancelado',
+      ];
       if (!validStatuses.includes(body.status)) {
-        return { success: false, error: 'Status inválido. Use: agendado, confirmado, realizado, cancelado' };
+        return {
+          success: false,
+          error:
+            'Status inválido. Use: agendado, confirmado, realizado, cancelado',
+        };
       }
-      const appointment = await this.appointmentModel.findByIdAndUpdate(
-        id,
-        { status: body.status },
-        { new: true },
-      ).lean().exec();
-      if (!appointment) return { success: false, error: 'Agendamento não encontrado' };
-      return { success: true, data: appointment, message: `Status atualizado para ${body.status}` };
+      const appointment = await this.appointmentModel
+        .findByIdAndUpdate(id, { status: body.status }, { new: true })
+        .lean()
+        .exec();
+      if (!appointment)
+        return { success: false, error: 'Agendamento não encontrado' };
+      return {
+        success: true,
+        data: appointment,
+        message: `Status atualizado para ${body.status}`,
+      };
     } catch (error: any) {
       return { success: false, error: error.message };
     }

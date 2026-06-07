@@ -13,13 +13,17 @@ export const ImpactActionSchema = new Schema({
   locationAddress: { type: String }, // Endereço legível (geocodificação reversa)
   bloodType: { type: String }, // Tipo sanguíneo do doador (ações de doação)
   txHash: { type: String }, // Hash da transação blockchain
-  status: { type: String, enum: ['PENDENTE_VALIDACAO', 'VALIDADO', 'REJEITADO'], default: 'PENDENTE_VALIDACAO' },
+  status: {
+    type: String,
+    enum: ['PENDENTE_VALIDACAO', 'VALIDADO', 'REJEITADO'],
+    default: 'PENDENTE_VALIDACAO',
+  },
   timestamp: { type: Date, default: Date.now },
 });
 
 // Fix 2: Índices para eliminar full collection scans nas queries frequentes
 ImpactActionSchema.index({ citizenId: 1, timestamp: -1 }); // GET histórico do cidadão
-ImpactActionSchema.index({ status: 1, timestamp: -1 });     // GET pendentes por status
+ImpactActionSchema.index({ status: 1, timestamp: -1 }); // GET pendentes por status
 
 export interface ImpactActionDocument extends Omit<Document, '_id'> {
   _id: string;

@@ -994,7 +994,7 @@ export default function EcoSolidApp() {
           points: `+${a.pointsEarned} SOLID`,
           date: new Date(a.timestamp).toLocaleString(),
           icon: formatActionIcon(a.actionType),
-          tx: a.id?.slice(0, 10) + '...' || '0x...',
+          tx: a.txHash || (a._id || a.id) || 'Pendente',
           img: a.evidenceUrl !== 'sem-foto' ? a.evidenceUrl : null,
           lat: a.latitude,
           lng: a.longitude,
@@ -2042,7 +2042,7 @@ export default function EcoSolidApp() {
                             </a>
                           ) : (
                             <span className="text-xs text-yellow-500 flex items-center gap-1">
-                              ⚠️ Hash simulado
+                              ⏳ Aguardando aprovação
                             </span>
                           )
                         )}

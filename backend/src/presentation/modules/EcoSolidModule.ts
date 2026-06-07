@@ -97,9 +97,17 @@ import { IBlockchainService } from '../../application/ports/IBlockchainService';
         impactRepo: IImpactActionRepository,
         blockchainSvc: IBlockchainService,
       ) => {
-        return new RegisterImpactUseCase(citizenRepo, impactRepo, blockchainSvc);
+        return new RegisterImpactUseCase(
+          citizenRepo,
+          impactRepo,
+          blockchainSvc,
+        );
       },
-      inject: ['ICitizenRepository', 'IImpactActionRepository', 'IBlockchainService'],
+      inject: [
+        'ICitizenRepository',
+        'IImpactActionRepository',
+        'IBlockchainService',
+      ],
     },
   ],
 })

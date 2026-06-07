@@ -13,7 +13,11 @@ export const CitizenSchema = new Schema({
   address: { type: String },
   facePhotoUrl: { type: String },
   totalPoints: { type: Number, default: 0 },
-  level: { type: String, enum: Object.values(CitizenLevel), default: CitizenLevel.SEED },
+  level: {
+    type: String,
+    enum: Object.values(CitizenLevel),
+    default: CitizenLevel.SEED,
+  },
   createdAt: { type: Date, default: Date.now },
   credentialId: { type: String, unique: true, sparse: true },
   pushToken: { type: Object },

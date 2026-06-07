@@ -9,7 +9,11 @@ export const PixTransactionSchema = new Schema({
   chave: { type: String },
   nomePagador: { type: String },
   nomeRecebedor: { type: String },
-  status: { type: String, enum: ['concluido', 'pendente', 'estornado'], default: 'concluido' },
+  status: {
+    type: String,
+    enum: ['concluido', 'pendente', 'estornado'],
+    default: 'concluido',
+  },
   idTransacao: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
 });

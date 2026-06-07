@@ -11,7 +11,11 @@ export const CitizenPixTransactionSchema = new Schema({
   usuarioDestinoId: { type: String, required: true },
   nomeOrigem: { type: String },
   nomeDestino: { type: String },
-  status: { type: String, enum: ['concluido', 'pendente', 'estornado'], default: 'concluido' },
+  status: {
+    type: String,
+    enum: ['concluido', 'pendente', 'estornado'],
+    default: 'concluido',
+  },
   idTransacao: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
 });

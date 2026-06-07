@@ -1,4 +1,13 @@
-import { Controller, Post, Body, Get, Param, Inject, Headers, Query } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Param,
+  Inject,
+  Headers,
+  Query,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { RegisterImpactUseCase } from '../../application/use-cases/RegisterImpactUseCase';
@@ -11,9 +20,12 @@ import type { ICitizenRepository } from '../../domain/repositories/ICitizenRepos
 export class ImpactActionController {
   constructor(
     private readonly registerImpactUseCase: RegisterImpactUseCase,
-    @Inject('IImpactActionRepository') private readonly impactRepo: IImpactActionRepository,
-    @Inject('ICitizenRepository') private readonly citizenRepo: ICitizenRepository,
-    @Inject('IBlockchainService') private readonly blockchainService: IBlockchainService,
+    @Inject('IImpactActionRepository')
+    private readonly impactRepo: IImpactActionRepository,
+    @Inject('ICitizenRepository')
+    private readonly citizenRepo: ICitizenRepository,
+    @Inject('IBlockchainService')
+    private readonly blockchainService: IBlockchainService,
     @InjectModel('ImpactAction') private readonly impactModel: Model<any>,
     @InjectModel('Citizen') private readonly citizenModel: Model<any>,
   ) {}
@@ -45,7 +57,10 @@ export class ImpactActionController {
   }
 
   @Get('citizen/:citizenId/action/:actionId/photo')
-  async getActionPhoto(@Param('citizenId') citizenId: string, @Param('actionId') actionId: string) {
+  async getActionPhoto(
+    @Param('citizenId') citizenId: string,
+    @Param('actionId') actionId: string,
+  ) {
     try {
       // Rota separada para buscar a foto de uma ação específica (somente quando necessário)
       const action = await this.impactModel
@@ -65,15 +80,18 @@ export class ImpactActionController {
     @Headers('x-partner-code') partnerCode: string,
   ) {
     try {
-      if (!partnerCode) return { success: false, error: 'x-partner-code header obrigatório' };
+      if (!partnerCode)
+        return { success: false, error: 'x-partner-code header obrigatório' };
 
       const action = await this.impactModel.findById(id);
       if (!action) return { success: false, error: 'Ação não encontrada' };
-      if (action.status !== 'PENDENTE_VALIDACAO') return { success: false, error: 'Ação já foi processada' };
+      if (action.status !== 'PENDENTE_VALIDACAO')
+        return { success: false, error: 'Ação já foi processada' };
 
       // Gravar na blockchain Sepolia
       const citizen = await this.citizenModel.findById(action.citizenId);
-      const citizenAddress = citizen?.walletAddress || '0x0000000000000000000000000000000000000000';
+      const citizenAddress =
+        citizen?.walletAddress || '0x0000000000000000000000000000000000000000';
       const txHash = await this.blockchainService.registerAction(
         id,
         citizenAddress,
@@ -97,7 +115,11 @@ export class ImpactActionController {
       action.txHash = txHash;
       await action.save();
 
-      return { success: true, data: { action, txHash }, message: 'Ação validada e blockchain registrada!' };
+      return {
+        success: true,
+        data: { action, txHash },
+        message: 'Ação validada e blockchain registrada!',
+      };
     } catch (error: any) {
       return { success: false, error: error.message };
     }
@@ -109,11 +131,13 @@ export class ImpactActionController {
     @Headers('x-partner-code') partnerCode: string,
   ) {
     try {
-      if (!partnerCode) return { success: false, error: 'x-partner-code header obrigatório' };
+      if (!partnerCode)
+        return { success: false, error: 'x-partner-code header obrigatório' };
 
       const action = await this.impactModel.findById(id);
       if (!action) return { success: false, error: 'Ação não encontrada' };
-      if (action.status !== 'PENDENTE_VALIDACAO') return { success: false, error: 'Ação já foi processada' };
+      if (action.status !== 'PENDENTE_VALIDACAO')
+        return { success: false, error: 'Ação já foi processada' };
 
       action.status = 'REJEITADO';
       await action.save();
@@ -126,10 +150,10 @@ export class ImpactActionController {
 
   // Mapeamento actionType → segmento do parceiro
   private readonly actionSegmentMap: Record<string, string> = {
-    'RECYCLING': 'Outro',
-    'BLOOD_DONATION': 'Hospital',
-    'FOOD_DONATION': 'Restaurante',
-    'VOLUNTEERING': 'Outro',
+    RECYCLING: 'Outro',
+    BLOOD_DONATION: 'Hospital',
+    FOOD_DONATION: 'Restaurante',
+    VOLUNTEERING: 'Outro',
   };
 
   @Get('pending')
@@ -144,15 +168,24 @@ export class ImpactActionController {
           .map(([type]) => type);
         if (matchingTypes.length > 0) {
           filter.actionType = { $in: matchingTypes };
-          console.log('[ImpactPending] Filtrando por segmento:', segment, '→ actionTypes:', matchingTypes);
+          console.log(
+            '[ImpactPending] Filtrando por segmento:',
+            segment,
+            '→ actionTypes:',
+            matchingTypes,
+          );
         }
       }
       const actions = await this.impactModel
-        .find(filter)
+        .find(filter, { evidenceUrl: 0 })
         .sort({ timestamp: -1 })
         .lean()
         .exec();
-      console.log('[ImpactPending] Retornando', actions.length, 'ações pendentes');
+      console.log(
+        '[ImpactPending] Retornando',
+        actions.length,
+        'ações pendentes',
+      );
       return { success: true, data: actions };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -163,7 +196,7 @@ export class ImpactActionController {
   async getPendingByPartner(@Param('partnerCode') partnerCode: string) {
     try {
       const actions = await this.impactModel
-        .find({ status: 'PENDENTE_VALIDACAO', validatorId: partnerCode })
+        .find({ status: 'PENDENTE_VALIDACAO', validatorId: partnerCode }, { evidenceUrl: 0 })
         .sort({ timestamp: -1 })
         .lean()
         .exec();

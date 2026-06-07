@@ -12,7 +12,9 @@ export class RegisterImpactUseCase {
     private readonly blockchainService: IBlockchainService,
   ) {}
 
-  async execute(dto: RegisterImpactDto): Promise<{ action: ImpactAction; txHash: string }> {
+  async execute(
+    dto: RegisterImpactDto,
+  ): Promise<{ action: ImpactAction; txHash: string }> {
     const citizen = await this.citizenRepository.findById(dto.citizenId);
     if (!citizen) throw new Error('Cidadão não encontrado.');
 

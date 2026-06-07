@@ -10,6 +10,10 @@ export const CryptoTransactionSchema = new Schema({
   from: { type: String, required: true },
   to: { type: String, required: true },
   bloco: { type: Number },
-  status: { type: String, enum: ['confirmado', 'pendente', 'falhou'], default: 'confirmado' },
+  status: {
+    type: String,
+    enum: ['confirmado', 'pendente', 'falhou'],
+    default: 'confirmado',
+  },
   createdAt: { type: Date, default: Date.now },
 });

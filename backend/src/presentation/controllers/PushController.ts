@@ -11,7 +11,9 @@ export class PushController {
   }
 
   @Post('test')
-  async testNotification(@Body() body: { pushToken: any; title: string; message: string }) {
+  async testNotification(
+    @Body() body: { pushToken: any; title: string; message: string },
+  ) {
     try {
       const webpush = require('web-push');
       webpush.setVapidDetails(
@@ -19,12 +21,15 @@ export class PushController {
         process.env.VAPID_PUBLIC_KEY,
         process.env.VAPID_PRIVATE_KEY,
       );
-      await webpush.sendNotification(body.pushToken, JSON.stringify({
-        title: body.title,
-        body: body.message,
-        icon: '/icons/icon-192x192.png',
-        data: { url: '/?action=blood_donation' },
-      }));
+      await webpush.sendNotification(
+        body.pushToken,
+        JSON.stringify({
+          title: body.title,
+          body: body.message,
+          icon: '/icons/icon-192x192.png',
+          data: { url: '/?action=blood_donation' },
+        }),
+      );
       return { success: true, message: 'Notificação enviada' };
     } catch (error: any) {
       return { success: false, error: error.message };

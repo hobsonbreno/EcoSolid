@@ -7,7 +7,8 @@ export class PixController {
     try {
       const useSandbox = process.env.EFI_SANDBOX === 'true';
       // Simula cobrança PIX (MVP — Efí Bank SDK opcional no ambiente)
-      const txid = 'pix_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+      const txid =
+        'pix_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
       return {
         success: true,
         data: {

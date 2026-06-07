@@ -7,6 +7,10 @@ export const AppointmentSchema = new Schema({
   time: { type: String, required: true },
   notes: { type: String },
   location: { type: String, default: 'HemoSangue CE' },
-  status: { type: String, enum: ['agendado', 'confirmado', 'realizado', 'cancelado'], default: 'agendado' },
+  status: {
+    type: String,
+    enum: ['agendado', 'confirmado', 'realizado', 'cancelado'],
+    default: 'agendado',
+  },
   createdAt: { type: Date, default: Date.now },
 });

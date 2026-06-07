@@ -15,7 +15,9 @@ export class PublicController {
       const [totalActions, totalCitizens, points, recent] = await Promise.all([
         this.impactModel.countDocuments(),
         this.citizenModel.countDocuments(),
-        this.impactModel.aggregate([{ $group: { _id: null, total: { $sum: '$pointsEarned' } } }]),
+        this.impactModel.aggregate([
+          { $group: { _id: null, total: { $sum: '$pointsEarned' } } },
+        ]),
         this.impactModel.find().sort({ timestamp: -1 }).limit(10).lean().exec(),
       ]);
 
