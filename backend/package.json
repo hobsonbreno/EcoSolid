@@ -24,7 +24,7 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/mongoose": "^11.0.4",
     "@nestjs/platform-express": "^11.0.1",
-    "ethers": "^6.16.0",
+    "ethers": "^6.17.0",
     "mongoose": "^9.6.2",
     "nodemailer": "^8.0.8",
     "pix-utils": "^2.8.2",
